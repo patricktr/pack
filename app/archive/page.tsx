@@ -49,6 +49,7 @@ export default async function ArchivePage() {
                   <p className="text-[15px] leading-snug">{item.title}</p>
                   <p className="text-xs text-neutral-400 dark:text-neutral-500">
                     {SECTION_LABELS[item.section] ?? item.section}
+                    {item.category ? ` · ${item.category}` : ""}
                     {item.weather ? ` · ${item.weather}` : ""}
                     {item.pack ? ` · ${item.pack}` : ""}
                     {item.archivedAt

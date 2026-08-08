@@ -8,6 +8,7 @@ export type Item = {
   section: Section;
   weather: Weather | null;
   pack: string | null;
+  category: string | null;
   checked: boolean;
   position: number;
   archivedAt: string | null;

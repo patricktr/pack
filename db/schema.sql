@@ -9,6 +9,9 @@ CREATE TABLE IF NOT EXISTS items (
   -- Optional pack tag ('water', 'camping', ...); item shows only when the trip
   -- has that pack toggled on.
   pack TEXT,
+  -- Display group within the packing section ('tech', 'clothes', 'outdoors',
+  -- ...). NULL falls into the "Other" group. Unused for house/abdul items.
+  category TEXT,
   checked BOOLEAN NOT NULL DEFAULT FALSE,
   archived BOOLEAN NOT NULL DEFAULT FALSE,
   position INTEGER NOT NULL DEFAULT 0,
@@ -31,3 +34,6 @@ ALTER TABLE trip ADD COLUMN IF NOT EXISTS destination TEXT;
 ALTER TABLE trip ADD COLUMN IF NOT EXISTS starts_on DATE;
 ALTER TABLE trip ADD COLUMN IF NOT EXISTS nights INTEGER;
 ALTER TABLE trip ADD COLUMN IF NOT EXISTS weather_stats JSONB;
+
+-- Logical display groups within the packing section (added Aug 2026).
+ALTER TABLE items ADD COLUMN IF NOT EXISTS category TEXT;

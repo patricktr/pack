@@ -42,6 +42,13 @@ function cleanPack(value: unknown): string | null {
   return pack || null;
 }
 
+function cleanCategory(value: unknown): string | null {
+  if (value === null || value === "") return null;
+  if (typeof value !== "string") throw new Error("Invalid category");
+  const category = value.trim().toLowerCase().slice(0, 24);
+  return category || null;
+}
+
 function cleanPacks(value: unknown): string[] {
   if (!Array.isArray(value)) throw new Error("Invalid packs");
   return [...new Set(value.map(cleanPack).filter((p): p is string => p !== null))];
@@ -78,17 +85,19 @@ export async function updateItem(
     section: unknown;
     weather: unknown;
     pack: unknown;
+    category: unknown;
   },
 ): Promise<void> {
   await assertAuthenticated();
   await sql().query(
-    `UPDATE items SET title = $2, section = $3, weather = $4, pack = $5 WHERE id = $1`,
+    `UPDATE items SET title = $2, section = $3, weather = $4, pack = $5, category = $6 WHERE id = $1`,
     [
       id,
       cleanTitle(fields.title),
       cleanSection(fields.section),
       cleanWeather(fields.weather),
       cleanPack(fields.pack),
+      cleanCategory(fields.category),
     ],
   );
   revalidatePath("/");

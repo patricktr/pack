@@ -23,7 +23,58 @@ import {
   updateItem,
 } from "@/app/actions";
 
-const HIDE_PACKED_KEY = "pack:hidePacked";
+const COLLAPSED_KEY = "pack:collapsed";
+
+const CATEGORY_ORDER = [
+  "tech",
+  "clothes",
+  "kids",
+  "health",
+  "kitchen",
+  "water",
+  "outdoors",
+  "travel",
+  "fun",
+  "other",
+];
+
+const CATEGORY_LABELS: Record<string, string> = {
+  tech: "Technology",
+  clothes: "Clothing",
+  kids: "Kids",
+  health: "Health & Toiletries",
+  kitchen: "Food & Kitchen",
+  water: "Beach & Water",
+  outdoors: "Outdoors",
+  travel: "Travel & Car",
+  fun: "Fun & Games",
+  other: "Other",
+};
+
+function categoryLabel(category: string): string {
+  return (
+    CATEGORY_LABELS[category] ??
+    category.charAt(0).toUpperCase() + category.slice(1)
+  );
+}
+
+function categoryRank(category: string): number {
+  const i = CATEGORY_ORDER.indexOf(category);
+  return i === -1 ? CATEGORY_ORDER.length - 1.5 : i;
+}
+
+function groupByCategory(items: Item[]): [string, Item[]][] {
+  const map = new Map<string, Item[]>();
+  for (const item of items) {
+    const key = item.category ?? "other";
+    const list = map.get(key);
+    if (list) list.push(item);
+    else map.set(key, [item]);
+  }
+  return [...map.entries()].sort(
+    (a, b) => categoryRank(a[0]) - categoryRank(b[0]) || a[0].localeCompare(b[0]),
+  );
+}
 
 function visibleForTrip(item: Item, trip: Trip): boolean {
   if (item.section !== "packing") return true;
@@ -84,19 +135,36 @@ export function PackApp({
   const [packs, setPacks] = useState(() =>
     [...new Set([...knownPacks, ...initialItems.map((i) => i.pack).filter(Boolean) as string[]])].sort(),
   );
-  const [hidePacked, setHidePacked] = useState(false);
   const [editingId, setEditingId] = useState<number | null>(null);
+  const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
 
   useEffect(() => {
-    setHidePacked(localStorage.getItem(HIDE_PACKED_KEY) === "1");
+    try {
+      setCollapsed(JSON.parse(localStorage.getItem(COLLAPSED_KEY) ?? "{}"));
+    } catch {
+      // ignore corrupt state
+    }
   }, []);
+
+  const categories = useMemo(
+    () =>
+      [
+        ...new Set([
+          ...CATEGORY_ORDER,
+          ...(items.map((i) => i.category).filter(Boolean) as string[]),
+        ]),
+      ].sort((a, b) => categoryRank(a) - categoryRank(b) || a.localeCompare(b)),
+    [items],
+  );
 
   const fail = () => router.refresh();
 
-  function toggleHidePacked() {
-    const next = !hidePacked;
-    setHidePacked(next);
-    localStorage.setItem(HIDE_PACKED_KEY, next ? "1" : "0");
+  function toggleGroup(key: string) {
+    setCollapsed((prev) => {
+      const next = { ...prev, [key]: !prev[key] };
+      localStorage.setItem(COLLAPSED_KEY, JSON.stringify(next));
+      return next;
+    });
   }
 
   function handleToggle(item: Item) {
@@ -149,6 +217,7 @@ export function PackApp({
           section,
           weather: null,
           pack: null,
+          category: null,
           checked: false,
           position,
           archivedAt: null,
@@ -159,45 +228,58 @@ export function PackApp({
     }
   }
 
-  const packing = useMemo(
-    () => items.filter((i) => i.section === "packing"),
-    [items],
+  const visible = useMemo(
+    () => items.filter((i) => visibleForTrip(i, trip)),
+    [items, trip],
   );
-  const packingVisible = packing.filter((i) => visibleForTrip(i, trip));
-  const hiddenCount = packing.length - packingVisible.length;
-  const house = items.filter((i) => i.section === "house");
-  const abdul = items.filter((i) => i.section === "abdul");
+  const hiddenCount =
+    items.filter((i) => i.section === "packing").length -
+    visible.filter((i) => i.section === "packing").length;
 
-  const allVisible = [...packingVisible, ...house, ...abdul];
-  const packed = allVisible.filter((i) => i.checked).length;
+  const packingLeft = visible.filter((i) => i.section === "packing" && !i.checked);
+  const houseLeft = visible.filter((i) => i.section === "house" && !i.checked);
+  const abdulLeft = visible.filter((i) => i.section === "abdul" && !i.checked);
+  const done = visible.filter((i) => i.checked);
+
+  const packingGroups = groupByCategory(packingLeft);
+  const doneGroups: [string, string, Item[]][] = [
+    ...groupByCategory(done.filter((i) => i.section === "packing")).map(
+      ([key, list]): [string, string, Item[]] => [key, categoryLabel(key), list],
+    ),
+    ...(done.some((i) => i.section === "house")
+      ? [["house", "Before you leave", done.filter((i) => i.section === "house")] as [string, string, Item[]]]
+      : []),
+    ...(done.some((i) => i.section === "abdul")
+      ? [["abdul", "Abdul", done.filter((i) => i.section === "abdul")] as [string, string, Item[]]]
+      : []),
+  ];
+
+  const rowProps = {
+    editingId,
+    packs,
+    categories,
+    onToggle: handleToggle,
+    onEdit: setEditingId,
+    onSave: handleSave,
+    onArchive: handleArchive,
+  };
 
   return (
     <div className="mx-auto flex w-full max-w-lg flex-1 flex-col pb-24">
       <header className="sticky top-0 z-10 border-b border-black/5 bg-neutral-50/95 backdrop-blur dark:border-white/10 dark:bg-neutral-950/95">
-        <div className="flex items-baseline justify-between px-4 pt-[max(env(safe-area-inset-top),0.75rem)] pb-1">
+        <div className="flex items-center justify-between px-4 pt-[max(env(safe-area-inset-top),0.75rem)] pb-2.5">
           <h1 className="text-xl font-bold tracking-tight">Pack</h1>
-          <p className="text-sm tabular-nums text-neutral-500 dark:text-neutral-400">
-            {packed} / {allVisible.length} packed
-          </p>
-        </div>
-        <div className="flex items-center gap-2 px-4 pb-2.5">
-          <button
-            onClick={toggleHidePacked}
-            aria-pressed={hidePacked}
-            className={`shrink-0 rounded-full px-3 py-1.5 text-xs font-semibold transition active:scale-95 ${
-              hidePacked
-                ? "bg-neutral-800 text-white dark:bg-neutral-200 dark:text-neutral-900"
-                : "bg-black/5 text-neutral-600 dark:bg-white/10 dark:text-neutral-300"
-            }`}
-          >
-            Hide packed
-          </button>
-          <Link
-            href="/archive"
-            className="shrink-0 rounded-full bg-black/5 px-3 py-1.5 text-xs font-semibold text-neutral-600 transition active:scale-95 dark:bg-white/10 dark:text-neutral-300"
-          >
-            Archive
-          </Link>
+          <div className="flex items-center gap-3">
+            <p className="text-sm tabular-nums text-neutral-500 dark:text-neutral-400">
+              {done.length} / {visible.length} packed
+            </p>
+            <Link
+              href="/archive"
+              className="rounded-full bg-black/5 px-3 py-1.5 text-xs font-semibold text-neutral-600 transition active:scale-95 dark:bg-white/10 dark:text-neutral-300"
+            >
+              Archive
+            </Link>
+          </div>
         </div>
       </header>
 
@@ -208,50 +290,221 @@ export function PackApp({
         onStart={handleStartTrip}
       />
 
-      <SectionBlock
-        title="Packing"
-        items={packingVisible}
-        hidePacked={hidePacked}
-        editingId={editingId}
-        packs={packs}
-        onToggle={handleToggle}
-        onEdit={setEditingId}
-        onSave={handleSave}
-        onArchive={handleArchive}
-        onAdd={(title) => handleAdd(title, "packing")}
-        footnote={
-          hiddenCount > 0
-            ? `${hiddenCount} item${hiddenCount === 1 ? "" : "s"} hidden for this trip`
-            : undefined
-        }
-      />
+      <SectionHeading title="Packing" note={`${packingLeft.length} to pack`} />
+      <div className="flex flex-col gap-2 px-2">
+        {packingGroups.map(([key, groupItems]) => (
+          <GroupCard
+            key={key}
+            title={categoryLabel(key)}
+            count={groupItems.length}
+            collapsed={!!collapsed[`p:${key}`]}
+            onToggle={() => toggleGroup(`p:${key}`)}
+          >
+            {groupItems.map((item) => (
+              <Row key={item.id} item={item} {...rowProps} />
+            ))}
+          </GroupCard>
+        ))}
+        <div className="overflow-hidden rounded-xl bg-white shadow-sm dark:bg-neutral-900">
+          <AddRow onAdd={(title) => handleAdd(title, "packing")} />
+        </div>
+        {hiddenCount > 0 ? (
+          <p className="px-2 text-xs text-neutral-400 dark:text-neutral-500">
+            {hiddenCount} item{hiddenCount === 1 ? "" : "s"} hidden for this trip
+          </p>
+        ) : null}
+      </div>
 
-      <SectionBlock
-        title="Before you leave"
-        items={house}
-        hidePacked={hidePacked}
-        editingId={editingId}
-        packs={packs}
-        onToggle={handleToggle}
-        onEdit={setEditingId}
-        onSave={handleSave}
-        onArchive={handleArchive}
-        onAdd={(title) => handleAdd(title, "house")}
-      />
+      <SectionHeading title="Before you leave" note={`${houseLeft.length + abdulLeft.length} to do`} />
+      <div className="flex flex-col gap-2 px-2">
+        <GroupCard
+          title="House"
+          count={houseLeft.length}
+          collapsed={!!collapsed["house"]}
+          onToggle={() => toggleGroup("house")}
+          addRow={<AddRow onAdd={(title) => handleAdd(title, "house")} />}
+        >
+          {houseLeft.map((item) => (
+            <Row key={item.id} item={item} {...rowProps} />
+          ))}
+        </GroupCard>
+        <GroupCard
+          title="Abdul"
+          count={abdulLeft.length}
+          collapsed={!!collapsed["abdul"]}
+          onToggle={() => toggleGroup("abdul")}
+          addRow={<AddRow onAdd={(title) => handleAdd(title, "abdul")} />}
+        >
+          {abdulLeft.map((item) => (
+            <Row key={item.id} item={item} {...rowProps} />
+          ))}
+        </GroupCard>
+      </div>
 
-      <SectionBlock
-        title="Abdul"
-        items={abdul}
-        hidePacked={hidePacked}
-        editingId={editingId}
-        packs={packs}
-        onToggle={handleToggle}
-        onEdit={setEditingId}
-        onSave={handleSave}
-        onArchive={handleArchive}
-        onAdd={(title) => handleAdd(title, "abdul")}
-      />
+      {done.length > 0 ? (
+        <>
+          <SectionHeading title="Packed" note={`${done.length} done`} />
+          <div className="flex flex-col gap-2 px-2">
+            {doneGroups.map(([key, label, groupItems]) => (
+              <GroupCard
+                key={key}
+                title={label}
+                count={groupItems.length}
+                collapsed={!!collapsed[`d:${key}`]}
+                onToggle={() => toggleGroup(`d:${key}`)}
+                muted
+              >
+                {groupItems.map((item) => (
+                  <Row key={item.id} item={item} {...rowProps} />
+                ))}
+              </GroupCard>
+            ))}
+          </div>
+        </>
+      ) : null}
     </div>
+  );
+}
+
+function SectionHeading({ title, note }: { title: string; note: string }) {
+  return (
+    <div className="flex items-baseline justify-between px-4 pt-5 pb-1.5">
+      <h2 className="text-[13px] font-bold uppercase tracking-wide text-neutral-500 dark:text-neutral-400">
+        {title}
+      </h2>
+      <p className="text-xs tabular-nums text-neutral-400 dark:text-neutral-500">
+        {note}
+      </p>
+    </div>
+  );
+}
+
+function GroupCard({
+  title,
+  count,
+  collapsed,
+  onToggle,
+  addRow,
+  muted,
+  children,
+}: {
+  title: string;
+  count: number;
+  collapsed: boolean;
+  onToggle: () => void;
+  addRow?: React.ReactNode;
+  muted?: boolean;
+  children: React.ReactNode;
+}) {
+  return (
+    <div
+      className={`overflow-hidden rounded-xl shadow-sm ${
+        muted ? "bg-white/60 dark:bg-neutral-900/60" : "bg-white dark:bg-neutral-900"
+      }`}
+    >
+      <button
+        onClick={onToggle}
+        aria-expanded={!collapsed}
+        className="flex min-h-10 w-full items-center gap-2 px-3 py-2 text-left"
+      >
+        <svg
+          width="14"
+          height="14"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="2.5"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          aria-hidden="true"
+          className={`shrink-0 text-neutral-400 transition-transform dark:text-neutral-500 ${collapsed ? "-rotate-90" : ""}`}
+        >
+          <polyline points="6 9 12 15 18 9" />
+        </svg>
+        <span className="text-[12px] font-bold uppercase tracking-wide text-neutral-500 dark:text-neutral-400">
+          {title}
+        </span>
+        <span className="ml-auto text-xs tabular-nums text-neutral-400 dark:text-neutral-500">
+          {count}
+        </span>
+      </button>
+      {!collapsed ? (
+        <ul className="border-t border-black/5 dark:border-white/5">
+          {children}
+          {addRow ? <li>{addRow}</li> : null}
+        </ul>
+      ) : null}
+    </div>
+  );
+}
+
+function Row({
+  item,
+  editingId,
+  packs,
+  categories,
+  onToggle,
+  onEdit,
+  onSave,
+  onArchive,
+}: {
+  item: Item;
+  editingId: number | null;
+  packs: string[];
+  categories: string[];
+  onToggle: (item: Item) => void;
+  onEdit: (id: number | null) => void;
+  onSave: (item: Item, draft: Draft) => void;
+  onArchive: (item: Item) => void;
+}) {
+  return (
+    <li className="border-b border-black/5 last:border-b-0 dark:border-white/5">
+      {editingId === item.id ? (
+        <ItemEditor
+          item={item}
+          packs={packs}
+          categories={categories}
+          onSave={onSave}
+          onArchive={onArchive}
+          onCancel={() => onEdit(null)}
+        />
+      ) : (
+        <div className="flex min-h-11 items-center">
+          <label className="flex min-w-0 flex-1 cursor-pointer items-center gap-3 py-2 pl-3">
+            <input
+              type="checkbox"
+              checked={item.checked}
+              onChange={() => onToggle(item)}
+              className="size-5 shrink-0 accent-sky-600"
+            />
+            <span
+              className={`min-w-0 flex-1 text-[15px] leading-snug ${
+                item.checked
+                  ? "text-neutral-400 line-through dark:text-neutral-600"
+                  : ""
+              }`}
+            >
+              {item.title}
+            </span>
+            <span className="flex shrink-0 items-center gap-1">
+              {item.weather ? (
+                <span className={chipClass(item.weather)}>{item.weather}</span>
+              ) : null}
+              {item.pack ? (
+                <span className={chipClass("pack")}>{item.pack}</span>
+              ) : null}
+            </span>
+          </label>
+          <button
+            onClick={() => onEdit(item.id)}
+            aria-label={`Edit ${item.title}`}
+            className="flex h-11 w-10 shrink-0 items-center justify-center text-neutral-300 transition hover:text-sky-600 dark:text-neutral-600 dark:hover:text-sky-400"
+          >
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/></svg>
+          </button>
+        </div>
+      )}
+    </li>
   );
 }
 
@@ -572,109 +825,6 @@ function NewTripForm({
   );
 }
 
-function SectionBlock({
-  title,
-  items,
-  hidePacked,
-  editingId,
-  packs,
-  onToggle,
-  onEdit,
-  onSave,
-  onArchive,
-  onAdd,
-  footnote,
-}: {
-  title: string;
-  items: Item[];
-  hidePacked: boolean;
-  editingId: number | null;
-  packs: string[];
-  onToggle: (item: Item) => void;
-  onEdit: (id: number | null) => void;
-  onSave: (item: Item, draft: Draft) => void;
-  onArchive: (item: Item) => void;
-  onAdd: (title: string) => void;
-  footnote?: string;
-}) {
-  const checked = items.filter((i) => i.checked).length;
-  const shown = hidePacked ? items.filter((i) => !i.checked) : items;
-
-  return (
-    <section className="px-2 pt-4">
-      <div className="flex items-baseline justify-between px-2 pb-1">
-        <h2 className="text-[13px] font-bold uppercase tracking-wide text-neutral-500 dark:text-neutral-400">
-          {title}
-        </h2>
-        <p className="text-xs tabular-nums text-neutral-400 dark:text-neutral-500">
-          {checked} / {items.length}
-        </p>
-      </div>
-      <ul className="overflow-hidden rounded-xl bg-white shadow-sm dark:bg-neutral-900">
-        {shown.map((item) => (
-          <li
-            key={item.id}
-            className="border-b border-black/5 last:border-b-0 dark:border-white/5"
-          >
-            {editingId === item.id ? (
-              <ItemEditor
-                item={item}
-                packs={packs}
-                onSave={onSave}
-                onArchive={onArchive}
-                onCancel={() => onEdit(null)}
-              />
-            ) : (
-              <div className="flex min-h-11 items-center">
-                <label className="flex min-w-0 flex-1 cursor-pointer items-center gap-3 py-2 pl-3">
-                  <input
-                    type="checkbox"
-                    checked={item.checked}
-                    onChange={() => onToggle(item)}
-                    className="size-5 shrink-0 accent-sky-600"
-                  />
-                  <span
-                    className={`min-w-0 flex-1 text-[15px] leading-snug ${
-                      item.checked
-                        ? "text-neutral-400 line-through dark:text-neutral-600"
-                        : ""
-                    }`}
-                  >
-                    {item.title}
-                  </span>
-                  <span className="flex shrink-0 items-center gap-1">
-                    {item.weather ? (
-                      <span className={chipClass(item.weather)}>{item.weather}</span>
-                    ) : null}
-                    {item.pack ? (
-                      <span className={chipClass("pack")}>{item.pack}</span>
-                    ) : null}
-                  </span>
-                </label>
-                <button
-                  onClick={() => onEdit(item.id)}
-                  aria-label={`Edit ${item.title}`}
-                  className="flex h-11 w-10 shrink-0 items-center justify-center text-neutral-300 transition hover:text-sky-600 dark:text-neutral-600 dark:hover:text-sky-400"
-                >
-                  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/></svg>
-                </button>
-              </div>
-            )}
-          </li>
-        ))}
-        <li>
-          <AddRow onAdd={onAdd} />
-        </li>
-      </ul>
-      {footnote ? (
-        <p className="px-2 pt-1.5 text-xs text-neutral-400 dark:text-neutral-500">
-          {footnote}
-        </p>
-      ) : null}
-    </section>
-  );
-}
-
 function AddRow({ onAdd }: { onAdd: (title: string) => void }) {
   const [open, setOpen] = useState(false);
   const [title, setTitle] = useState("");
@@ -733,17 +883,20 @@ type Draft = {
   section: Section;
   weather: Weather | null;
   pack: string | null;
+  category: string | null;
 };
 
 function ItemEditor({
   item,
   packs,
+  categories,
   onSave,
   onArchive,
   onCancel,
 }: {
   item: Item;
   packs: string[];
+  categories: string[];
   onSave: (item: Item, draft: Draft) => void;
   onArchive: (item: Item) => void;
   onCancel: () => void;
@@ -753,8 +906,10 @@ function ItemEditor({
     section: item.section,
     weather: item.weather,
     pack: item.pack,
+    category: item.category,
   });
   const [newPack, setNewPack] = useState("");
+  const [newCategory, setNewCategory] = useState("");
 
   const weatherOptions: { label: string; value: Weather | null }[] = [
     { label: "Any weather", value: null },
@@ -767,6 +922,9 @@ function ItemEditor({
     { label: "Abdul", value: "abdul" },
   ];
   const packOptions = [...new Set([...packs, ...(item.pack ? [item.pack] : [])])];
+  const categoryOptions = [
+    ...new Set([...categories, ...(item.category ? [item.category] : [])]),
+  ];
 
   const pill = (active: boolean) =>
     `rounded-full px-2.5 py-1 text-xs font-semibold capitalize transition active:scale-95 ${
@@ -831,6 +989,42 @@ function ItemEditor({
           />
         </form>
       </div>
+      {draft.section === "packing" ? (
+        <div>
+          <p className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-neutral-500 dark:text-neutral-400">
+            Group
+          </p>
+          <div className="flex flex-wrap items-center gap-1.5">
+            {categoryOptions.map((c) => (
+              <button
+                key={c}
+                onClick={() => setDraft({ ...draft, category: c })}
+                aria-pressed={draft.category === c}
+                className={pill(draft.category === c)}
+              >
+                {categoryLabel(c)}
+              </button>
+            ))}
+            <form
+              onSubmit={(e) => {
+                e.preventDefault();
+                const value = newCategory.trim().toLowerCase();
+                if (value) setDraft({ ...draft, category: value });
+                setNewCategory("");
+              }}
+              className="flex items-center gap-1"
+            >
+              <input
+                value={newCategory}
+                onChange={(e) => setNewCategory(e.target.value)}
+                placeholder="new group…"
+                aria-label="New group"
+                className="w-24 rounded-full border border-black/10 bg-white px-2.5 py-1 text-xs outline-none focus:border-sky-500 dark:border-white/10 dark:bg-neutral-900"
+              />
+            </form>
+          </div>
+        </div>
+      ) : null}
       <div className="flex flex-wrap gap-1.5">
         {sectionOptions.map((o) => (
           <button
