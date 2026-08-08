@@ -286,6 +286,22 @@ export function PackApp({
       : []),
   ];
 
+  const allGroupKeys = [
+    ...packingGroups.map(([key]) => `p:${key}`),
+    "house",
+    "abdul",
+    ...doneGroups.map(([key]) => `d:${key}`),
+  ];
+  const anyExpanded = allGroupKeys.some((k) => !collapsed[k]);
+
+  function toggleAll() {
+    const next = anyExpanded
+      ? { ...collapsed, ...Object.fromEntries(allGroupKeys.map((k) => [k, true])) }
+      : {};
+    setCollapsed(next);
+    localStorage.setItem(COLLAPSED_KEY, JSON.stringify(next));
+  }
+
   const rowProps = {
     editingId,
     packs,
@@ -301,10 +317,22 @@ export function PackApp({
       <header className="sticky top-0 z-10 border-b border-black/5 bg-neutral-50/95 backdrop-blur dark:border-white/10 dark:bg-neutral-950/95">
         <div className="flex items-center justify-between px-4 pt-[max(env(safe-area-inset-top),0.75rem)] pb-2.5">
           <h1 className="text-xl font-bold tracking-tight">Pack</h1>
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-2">
             <p className="text-sm tabular-nums text-neutral-500 dark:text-neutral-400">
               {done.length} / {visible.length} packed
             </p>
+            <button
+              onClick={toggleAll}
+              aria-label={anyExpanded ? "Collapse all groups" : "Expand all groups"}
+              title={anyExpanded ? "Collapse all" : "Expand all"}
+              className="rounded-full bg-black/5 px-2.5 py-1.5 text-neutral-600 transition active:scale-95 dark:bg-white/10 dark:text-neutral-300"
+            >
+              {anyExpanded ? (
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><polyline points="17 11 12 6 7 11"/><polyline points="17 18 12 13 7 18"/></svg>
+              ) : (
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><polyline points="7 6 12 11 17 6"/><polyline points="7 13 12 18 17 13"/></svg>
+              )}
+            </button>
             <Link
               href="/archive"
               className="rounded-full bg-black/5 px-3 py-1.5 text-xs font-semibold text-neutral-600 transition active:scale-95 dark:bg-white/10 dark:text-neutral-300"
