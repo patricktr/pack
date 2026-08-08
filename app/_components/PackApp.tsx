@@ -137,6 +137,7 @@ export function PackApp({
   );
   const [editingId, setEditingId] = useState<number | null>(null);
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
+  const [hiddenOpen, setHiddenOpen] = useState(false);
 
   useEffect(() => {
     try {
@@ -232,9 +233,10 @@ export function PackApp({
     () => items.filter((i) => visibleForTrip(i, trip)),
     [items, trip],
   );
-  const hiddenCount =
-    items.filter((i) => i.section === "packing").length -
-    visible.filter((i) => i.section === "packing").length;
+  const hiddenItems = items.filter(
+    (i) => i.section === "packing" && !visibleForTrip(i, trip),
+  );
+  const hiddenCount = hiddenItems.length;
 
   const packingLeft = visible.filter((i) => i.section === "packing" && !i.checked);
   const houseLeft = visible.filter((i) => i.section === "house" && !i.checked);
@@ -309,9 +311,74 @@ export function PackApp({
           <AddRow onAdd={(title) => handleAdd(title, "packing")} />
         </div>
         {hiddenCount > 0 ? (
-          <p className="px-2 text-xs text-neutral-400 dark:text-neutral-500">
-            {hiddenCount} item{hiddenCount === 1 ? "" : "s"} hidden for this trip
-          </p>
+          <div>
+            <button
+              onClick={() => setHiddenOpen((o) => !o)}
+              aria-expanded={hiddenOpen}
+              className="flex min-h-9 items-center gap-1.5 px-2 text-xs text-neutral-400 transition hover:text-sky-600 dark:text-neutral-500 dark:hover:text-sky-400"
+            >
+              <svg
+                width="12"
+                height="12"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2.5"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                aria-hidden="true"
+                className={`shrink-0 transition-transform ${hiddenOpen ? "" : "-rotate-90"}`}
+              >
+                <polyline points="6 9 12 15 18 9" />
+              </svg>
+              {hiddenCount} item{hiddenCount === 1 ? "" : "s"} hidden for this
+              trip
+            </button>
+            {hiddenOpen ? (
+              <ul className="overflow-hidden rounded-xl bg-white/60 shadow-sm dark:bg-neutral-900/60">
+                {hiddenItems.map((item) => (
+                  <li
+                    key={item.id}
+                    className="border-b border-black/5 last:border-b-0 dark:border-white/5"
+                  >
+                    {editingId === item.id ? (
+                      <ItemEditor
+                        item={item}
+                        packs={packs}
+                        categories={categories}
+                        onSave={handleSave}
+                        onArchive={handleArchive}
+                        onCancel={() => setEditingId(null)}
+                      />
+                    ) : (
+                      <div className="flex min-h-11 items-center">
+                        <span className="min-w-0 flex-1 py-2 pl-3 text-[15px] leading-snug text-neutral-400 dark:text-neutral-500">
+                          {item.title}
+                        </span>
+                        <span className="flex shrink-0 items-center gap-1">
+                          {item.weather ? (
+                            <span className={chipClass(item.weather)}>
+                              {item.weather}
+                            </span>
+                          ) : null}
+                          {item.pack ? (
+                            <span className={chipClass("pack")}>{item.pack}</span>
+                          ) : null}
+                        </span>
+                        <button
+                          onClick={() => setEditingId(item.id)}
+                          aria-label={`Edit ${item.title}`}
+                          className="flex h-11 w-10 shrink-0 items-center justify-center text-neutral-300 transition hover:text-sky-600 dark:text-neutral-600 dark:hover:text-sky-400"
+                        >
+                          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/></svg>
+                        </button>
+                      </div>
+                    )}
+                  </li>
+                ))}
+              </ul>
+            ) : null}
+          </div>
         ) : null}
       </div>
 
