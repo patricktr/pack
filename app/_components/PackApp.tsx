@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import type {
@@ -139,6 +139,19 @@ export function PackApp({
   const [editingId, setEditingId] = useState<number | null>(null);
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
   const [hiddenOpen, setHiddenOpen] = useState(false);
+  const [toast, setToast] = useState<{
+    itemId: number;
+    title: string;
+    wasChecked: boolean;
+  } | null>(null);
+  const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(
+    () => () => {
+      if (toastTimer.current) clearTimeout(toastTimer.current);
+    },
+    [],
+  );
 
   useEffect(() => {
     try {
@@ -174,6 +187,22 @@ export function PackApp({
       prev.map((i) => (i.id === item.id ? { ...i, checked: !i.checked } : i)),
     );
     toggleItem(item.id, !item.checked).catch(fail);
+    // item.checked still holds the pre-toggle state — that's what undo restores.
+    setToast({ itemId: item.id, title: item.title, wasChecked: item.checked });
+    if (toastTimer.current) clearTimeout(toastTimer.current);
+    toastTimer.current = setTimeout(() => setToast(null), 5000);
+  }
+
+  function handleUndo() {
+    if (!toast) return;
+    if (toastTimer.current) clearTimeout(toastTimer.current);
+    setItems((prev) =>
+      prev.map((i) =>
+        i.id === toast.itemId ? { ...i, checked: toast.wasChecked } : i,
+      ),
+    );
+    toggleItem(toast.itemId, toast.wasChecked).catch(fail);
+    setToast(null);
   }
 
   function handleTripChange(weather: TripWeather, tripPacks: string[]) {
@@ -429,6 +458,26 @@ export function PackApp({
             ))}
           </div>
         </>
+      ) : null}
+
+      {toast ? (
+        <div className="pointer-events-none fixed inset-x-0 bottom-0 z-20 flex justify-center px-4 pb-[max(env(safe-area-inset-bottom),1rem)]">
+          <div
+            role="status"
+            aria-live="polite"
+            className="pointer-events-auto flex w-full max-w-lg items-center gap-3 rounded-xl bg-neutral-900 py-1.5 pl-4 pr-1.5 text-sm text-white shadow-lg dark:bg-neutral-100 dark:text-neutral-900"
+          >
+            <span className="min-w-0 flex-1 truncate py-1.5">
+              {toast.wasChecked ? "Unpacked" : "Packed"} “{toast.title}”
+            </span>
+            <button
+              onClick={handleUndo}
+              className="shrink-0 rounded-lg px-3 py-2 text-xs font-bold uppercase tracking-wide text-sky-400 transition active:scale-95 dark:text-sky-600"
+            >
+              Undo
+            </button>
+          </div>
+        </div>
       ) : null}
     </div>
   );
