@@ -1,0 +1,21 @@
+# deps
+/node_modules
+
+# next
+/.next/
+/out/
+next-env.d.ts
+*.tsbuildinfo
+
+# env
+.env*
+!.env.example
+
+# personal list data (kept out of the public repo)
+db/seed.private.sql
+
+# vercel
+.vercel
+
+# misc
+.DS_Store
