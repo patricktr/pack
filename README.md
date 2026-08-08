@@ -14,8 +14,11 @@ trip.
   tomorrow — pack the day before), and for how many nights, then pulls the
   NWS forecast for that window: average high/low, hottest/coldest, and rain
   likelihood, and suggests hot/cold/mixed. When the peak rain chance is
-  ≥ 30%, the `rain` pack (rain jacket) is auto-added. The set points that
-  drive both live in [lib/weather.ts](lib/weather.ts) (`SETPOINTS`).
+  ≥ 30%, the `rain` pack (rain jacket) is auto-added — at lookup time,
+  again server-side at trip start, and as a one-tap suggestion on the trip
+  card if the pack is off while the stored forecast crosses the threshold.
+  The set points that drive all of this live in
+  [lib/setpoints.ts](lib/setpoints.ts) (`SETPOINTS`).
   Starting the trip clears every checkbox and keeps all items.
 - **Archive** hides an item from the list but keeps it forever (restorable
   from `/archive`).

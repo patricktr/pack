@@ -22,6 +22,7 @@ import {
   toggleItem,
   updateItem,
 } from "@/app/actions";
+import { SETPOINTS } from "@/lib/setpoints";
 
 const COLLAPSED_KEY = "pack:collapsed";
 
@@ -733,6 +734,16 @@ function TripCard({
               ) : null}
             </div>
             {trip.stats ? <StatsBlock stats={trip.stats} /> : null}
+            {trip.stats?.precipMax != null &&
+            trip.stats.precipMax >= SETPOINTS.RAIN_PACK_PCT &&
+            !trip.packs.includes("rain") ? (
+              <button
+                onClick={() => onChange(trip.weather, [...trip.packs, "rain"])}
+                className="rounded-lg border border-teal-300 px-3 py-2 text-left text-[13px] font-semibold text-teal-700 transition active:scale-95 dark:border-teal-800 dark:text-teal-400"
+              >
+                ☔ Rain peaks {trip.stats.precipMax}% — tap to add the rain pack
+              </button>
+            ) : null}
             <Label>Trip weather</Label>
             <WeatherChips
               value={trip.weather}

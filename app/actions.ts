@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { assertAuthenticated } from "@/lib/auth";
 import { sql } from "@/lib/db";
 import { lookupTripWeather } from "@/lib/weather";
+import { SETPOINTS } from "@/lib/setpoints";
 import type {
   Section,
   TripMeta,
@@ -212,6 +213,16 @@ export async function startNewTrip(
       : null;
   const nights = meta?.nights == null ? null : cleanNights(meta.nights);
   const stats = cleanStats(meta?.stats);
+  let tripPacks = cleanPacks(packs);
+  // Server-side backstop for the rain auto-add: a stale client can miss the
+  // lookup-time suggestion, but the stored forecast is authoritative.
+  if (
+    stats?.precipMax != null &&
+    stats.precipMax >= SETPOINTS.RAIN_PACK_PCT &&
+    !tripPacks.includes("rain")
+  ) {
+    tripPacks = [...tripPacks, "rain"];
+  }
   await sql().query(
     `UPDATE trip
      SET weather = $1, packs = $2, destination = $3, starts_on = $4,
@@ -219,7 +230,7 @@ export async function startNewTrip(
      WHERE id = 1`,
     [
       weather,
-      cleanPacks(packs),
+      tripPacks,
       destination,
       startsOn,
       nights,
