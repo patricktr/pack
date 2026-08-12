@@ -26,6 +26,14 @@ import { SETPOINTS } from "@/lib/setpoints";
 
 const COLLAPSED_KEY = "pack:collapsed";
 
+// The Abdul section is toggled per trip through a chip that lives in
+// trip.packs alongside the real pack tags ('water', 'camping', ...).
+const ABDUL_PACK = "abdul";
+
+function withAbdulChip(packs: string[]): string[] {
+  return packs.includes(ABDUL_PACK) ? packs : [...packs, ABDUL_PACK];
+}
+
 const CATEGORY_ORDER = [
   "tech",
   "clothes",
@@ -78,6 +86,7 @@ function groupByCategory(items: Item[]): [string, Item[]][] {
 }
 
 function visibleForTrip(item: Item, trip: Trip): boolean {
+  if (item.section === "abdul") return trip.packs.includes(ABDUL_PACK);
   if (item.section !== "packing") return true;
   if (item.weather && trip.weather !== "mixed" && item.weather !== trip.weather) {
     return false;
@@ -286,10 +295,12 @@ export function PackApp({
       : []),
   ];
 
+  const abdulOn = trip.packs.includes(ABDUL_PACK);
+
   const allGroupKeys = [
     ...packingGroups.map(([key]) => `p:${key}`),
     "house",
-    "abdul",
+    ...(abdulOn ? ["abdul"] : []),
     ...doneGroups.map(([key]) => `d:${key}`),
   ];
   const anyExpanded = allGroupKeys.some((k) => !collapsed[k]);
@@ -453,17 +464,19 @@ export function PackApp({
             <Row key={item.id} item={item} {...rowProps} />
           ))}
         </GroupCard>
-        <GroupCard
-          title="Abdul"
-          count={abdulLeft.length}
-          collapsed={!!collapsed["abdul"]}
-          onToggle={() => toggleGroup("abdul")}
-          addRow={<AddRow onAdd={(title) => handleAdd(title, "abdul")} />}
-        >
-          {abdulLeft.map((item) => (
-            <Row key={item.id} item={item} {...rowProps} />
-          ))}
-        </GroupCard>
+        {abdulOn ? (
+          <GroupCard
+            title="Abdul"
+            count={abdulLeft.length}
+            collapsed={!!collapsed["abdul"]}
+            onToggle={() => toggleGroup("abdul")}
+            addRow={<AddRow onAdd={(title) => handleAdd(title, "abdul")} />}
+          >
+            {abdulLeft.map((item) => (
+              <Row key={item.id} item={item} {...rowProps} />
+            ))}
+          </GroupCard>
+        ) : null}
       </div>
 
       {done.length > 0 ? (
@@ -833,7 +846,7 @@ function TripCard({
             />
             <Label>Packs</Label>
             <PackToggles
-              packs={packs}
+              packs={withAbdulChip(packs)}
               active={trip.packs}
               onChange={(p) => onChange(trip.weather, p)}
             />
@@ -867,7 +880,8 @@ function NewTripForm({
   const [busy, setBusy] = useState(false);
   const [result, setResult] = useState<WeatherLookup | null>(null);
   const [weather, setWeather] = useState<TripWeather>(currentWeather);
-  const [selPacks, setSelPacks] = useState<string[]>([]);
+  // Abdul's list starts on for a new trip; tap the chip off to skip it.
+  const [selPacks, setSelPacks] = useState<string[]>([ABDUL_PACK]);
 
   async function lookup() {
     if (!destination.trim() || busy) return;
@@ -962,7 +976,7 @@ function NewTripForm({
           : ""}
       </Label>
       <PackToggles
-        packs={packs}
+        packs={withAbdulChip(packs)}
         active={selPacks}
         suggested={result?.ok && result.rainLikely ? ["rain"] : undefined}
         onChange={setSelPacks}

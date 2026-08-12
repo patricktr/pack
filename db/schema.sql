@@ -1,8 +1,9 @@
 CREATE TABLE IF NOT EXISTS items (
   id SERIAL PRIMARY KEY,
   title TEXT NOT NULL,
-  -- 'packing' items are filtered by trip weather/packs while
-  -- 'house' and 'abdul' always show in the "Before you leave" section.
+  -- 'packing' items are filtered by trip weather/packs. 'house' always shows
+  -- in the "Before you leave" section; 'abdul' shows there only while the
+  -- trip's packs array contains the 'abdul' chip.
   section TEXT NOT NULL DEFAULT 'packing' CHECK (section IN ('packing', 'house', 'abdul')),
   -- NULL = pack on every trip; 'hot' shows on hot/mixed trips, 'cold' on cold/mixed.
   weather TEXT CHECK (weather IN ('hot', 'cold')),

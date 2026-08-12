@@ -8,8 +8,9 @@
 -- when the NWS forecast crosses SETPOINTS.RAIN_PACK_PCT (lib/weather.ts).
 -- category: display group within the packing section ('tech', 'clothes',
 -- 'outdoors', ...); NULL lands in "Other". Unused for house/abdul rows.
--- section: 'packing' is the filtered main list; 'house' and 'abdul' rows
--- always show in the "Before you leave" area.
+-- section: 'packing' is the filtered main list; 'house' rows always show in
+-- the "Before you leave" area, and 'abdul' rows show there while the trip's
+-- 'abdul' chip is toggled on.
 INSERT INTO items (title, section, weather, pack, category, position) VALUES
   ('Phone charger', 'packing', NULL, NULL, 'tech', 10),
   ('Headphones', 'packing', NULL, NULL, 'tech', 20),
