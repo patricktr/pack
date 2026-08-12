@@ -489,21 +489,26 @@ export function PackApp({
       ) : null}
 
       {toast ? (
-        <div className="pointer-events-none fixed inset-x-0 bottom-0 z-20 flex justify-center px-4 pb-[max(env(safe-area-inset-bottom),1rem)]">
-          <div
-            role="status"
-            aria-live="polite"
-            className="pointer-events-auto flex w-full max-w-lg items-center gap-3 rounded-xl bg-neutral-900 py-1.5 pl-4 pr-1.5 text-sm text-white shadow-lg dark:bg-neutral-100 dark:text-neutral-900"
-          >
-            <span className="min-w-0 flex-1 truncate py-1.5">
-              {toast.wasChecked ? "Unpacked" : "Packed"} “{toast.title}”
-            </span>
-            <button
-              onClick={handleUndo}
-              className="shrink-0 rounded-lg px-3 py-2 text-xs font-bold uppercase tracking-wide text-sky-400 transition active:scale-95 dark:text-sky-600"
+        // Sticky, not fixed: iOS Safari anchors fixed elements to the layout
+        // viewport, which drifts below the visible screen as browser chrome
+        // collapses/expands. Sticky tracks the scrollport, like the header.
+        <div className="pointer-events-none sticky bottom-0 z-20 mt-auto h-0">
+          <div className="flex -translate-y-full justify-center px-4 pb-[max(env(safe-area-inset-bottom),1rem)]">
+            <div
+              role="status"
+              aria-live="polite"
+              className="pointer-events-auto flex w-full max-w-lg items-center gap-3 rounded-xl bg-neutral-900 py-1.5 pl-4 pr-1.5 text-sm text-white shadow-lg dark:bg-neutral-100 dark:text-neutral-900"
             >
-              Undo
-            </button>
+              <span className="min-w-0 flex-1 truncate py-1.5">
+                {toast.wasChecked ? "Unpacked" : "Packed"} “{toast.title}”
+              </span>
+              <button
+                onClick={handleUndo}
+                className="shrink-0 rounded-lg px-3 py-2 text-xs font-bold uppercase tracking-wide text-sky-400 transition active:scale-95 dark:text-sky-600"
+              >
+                Undo
+              </button>
+            </div>
           </div>
         </div>
       ) : null}
