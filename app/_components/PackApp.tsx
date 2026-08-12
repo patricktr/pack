@@ -880,8 +880,7 @@ function NewTripForm({
   const [busy, setBusy] = useState(false);
   const [result, setResult] = useState<WeatherLookup | null>(null);
   const [weather, setWeather] = useState<TripWeather>(currentWeather);
-  // Abdul's list starts on for a new trip; tap the chip off to skip it.
-  const [selPacks, setSelPacks] = useState<string[]>([ABDUL_PACK]);
+  const [selPacks, setSelPacks] = useState<string[]>([]);
 
   async function lookup() {
     if (!destination.trim() || busy) return;
