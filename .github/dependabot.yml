@@ -1,0 +1,41 @@
+version: 2
+updates:
+  - package-ecosystem: "npm"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "06:00"
+    open-pull-requests-limit: 5
+    ignore:
+      # eslint 10 removed context.getFilename(), which the eslint-plugin-react
+      # bundled inside eslint-config-next still calls -- linting crashes with
+      # "TypeError: contextOrFilename.getFilename is not a function". The peer
+      # range (eslint >=9.0.0) does NOT catch this. Hold at v9 until
+      # eslint-config-next ships a compatible eslint-plugin-react.
+      - dependency-name: "eslint"
+        versions: [">=10"]
+      # TypeScript 7 is the native (Go) rewrite: it drops the `main` entry
+      # point (lib/typescript.js) and `tsserver`, so Next.js's
+      # `require.resolve("typescript")` detection fails and the build dies with
+      # "Please install typescript". Hold at v6 until Next.js supports the v7
+      # package layout.
+      - dependency-name: "typescript"
+        versions: [">=7"]
+    groups:
+      security-all:
+        applies-to: security-updates
+        patterns:
+          - "*"
+
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "06:00"
+    open-pull-requests-limit: 5
+    groups:
+      actions-all:
+        patterns:
+          - "*"
