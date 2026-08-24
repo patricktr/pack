@@ -25,7 +25,10 @@ trip.
   today is before the trip's departure date, those items are held in a
   muted "🌙 Day of" card at the bottom of the packing list; on departure
   day they rejoin their normal groups, tagged `day of`. Toggle it in any
-  item's editor ("Pack anytime" / "🌙 Day of only"). The date boundary is
+  item's editor ("Pack anytime" / "🌙 Day of only") for items that are
+  day-of on every trip, or tap the dashed `day of` button on an item's
+  row to hold it **for the current trip only** (undo via the chip's `×`;
+  cleared automatically when a new trip starts). The date boundary is
   pinned to America/New_York — packing happens at home.
 - **Archive** hides an item from the list but keeps it forever (restorable
   from `/archive`).

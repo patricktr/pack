@@ -17,6 +17,7 @@ import {
   addItem,
   archiveItem,
   lookupWeatherAction,
+  setItemDayOfTrip,
   setTrip,
   startNewTrip,
   toggleItem,
@@ -116,9 +117,14 @@ function todayISO(): string {
   });
 }
 
+/** Day-of on every trip (item setting) or just this one (quick button). */
+function effectiveDayOf(item: Item): boolean {
+  return item.dayOf || item.dayOfTrip;
+}
+
 /** Held back for now: in use until departure, and the trip hasn't started. */
 function dayOfHeld(item: Item, trip: Trip, today: string): boolean {
-  return item.dayOf && trip.startsOn !== null && today < trip.startsOn;
+  return effectiveDayOf(item) && trip.startsOn !== null && today < trip.startsOn;
 }
 
 function tomorrowISO(): string {
@@ -230,6 +236,13 @@ export function PackApp({
     setToast(null);
   }
 
+  function handleDayOfTrip(item: Item, on: boolean) {
+    setItems((prev) =>
+      prev.map((i) => (i.id === item.id ? { ...i, dayOfTrip: on } : i)),
+    );
+    setItemDayOfTrip(item.id, on).catch(fail);
+  }
+
   function handleTripChange(weather: TripWeather, tripPacks: string[]) {
     setTripState((prev) => ({ ...prev, weather, packs: tripPacks }));
     setTrip(weather, tripPacks).catch(fail);
@@ -240,7 +253,9 @@ export function PackApp({
     tripPacks: string[],
     meta: TripMeta,
   ) {
-    setItems((prev) => prev.map((i) => ({ ...i, checked: false })));
+    setItems((prev) =>
+      prev.map((i) => ({ ...i, checked: false, dayOfTrip: false })),
+    );
     setTripState((prev) => ({ ...prev, ...meta, weather, packs: tripPacks }));
     startNewTrip(weather, tripPacks, meta).catch(fail);
   }
@@ -275,6 +290,7 @@ export function PackApp({
           pack: null,
           category: null,
           dayOf: false,
+          dayOfTrip: false,
           checked: false,
           position,
           archivedAt: null,
@@ -345,10 +361,14 @@ export function PackApp({
     editingId,
     packs,
     categories,
+    // The quick "day of" button only helps while marking would actually hold
+    // the item — i.e. the trip has a departure date that hasn't arrived.
+    canMarkDayOf: trip.startsOn !== null && today < trip.startsOn,
     onToggle: handleToggle,
     onEdit: setEditingId,
     onSave: handleSave,
     onArchive: handleArchive,
+    onDayOfTrip: handleDayOfTrip,
   };
 
   return (
@@ -477,7 +497,7 @@ export function PackApp({
                           {item.pack ? (
                             <span className={chipClass("pack")}>{item.pack}</span>
                           ) : null}
-                          {item.dayOf ? (
+                          {effectiveDayOf(item) ? (
                             <span className={chipClass("dayof")}>day of</span>
                           ) : null}
                         </span>
@@ -653,19 +673,23 @@ function Row({
   editingId,
   packs,
   categories,
+  canMarkDayOf,
   onToggle,
   onEdit,
   onSave,
   onArchive,
+  onDayOfTrip,
 }: {
   item: Item;
   editingId: number | null;
   packs: string[];
   categories: string[];
+  canMarkDayOf: boolean;
   onToggle: (item: Item) => void;
   onEdit: (id: number | null) => void;
   onSave: (item: Item, draft: Draft) => void;
   onArchive: (item: Item) => void;
+  onDayOfTrip: (item: Item, on: boolean) => void;
 }) {
   return (
     <li className="border-b border-black/5 last:border-b-0 dark:border-white/5">
@@ -703,11 +727,28 @@ function Row({
               {item.pack ? (
                 <span className={chipClass("pack")}>{item.pack}</span>
               ) : null}
-              {item.dayOf ? (
-                <span className={chipClass("dayof")}>day of</span>
-              ) : null}
             </span>
           </label>
+          {/* Day-of slot: outside the label so taps don't toggle the checkbox. */}
+          {item.dayOfTrip && !item.dayOf ? (
+            <button
+              onClick={() => onDayOfTrip(item, false)}
+              aria-label={`Stop holding ${item.title} until the day of departure`}
+              className={`${chipClass("dayof")} ml-1 shrink-0 py-1 transition active:scale-95`}
+            >
+              day of ×
+            </button>
+          ) : item.dayOf ? (
+            <span className={`${chipClass("dayof")} ml-1 shrink-0`}>day of</span>
+          ) : canMarkDayOf && !item.checked ? (
+            <button
+              onClick={() => onDayOfTrip(item, true)}
+              aria-label={`Hold ${item.title} until the day of departure`}
+              className="ml-1 shrink-0 rounded border border-dashed border-neutral-300 px-1.5 py-1 text-[10px] font-semibold uppercase tracking-wide text-neutral-400 transition hover:border-violet-400 hover:text-violet-600 active:scale-95 dark:border-neutral-700 dark:text-neutral-500 dark:hover:border-violet-600 dark:hover:text-violet-400"
+            >
+              day of
+            </button>
+          ) : null}
           <button
             onClick={() => onEdit(item.id)}
             aria-label={`Edit ${item.title}`}

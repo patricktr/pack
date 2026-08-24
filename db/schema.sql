@@ -17,6 +17,9 @@ CREATE TABLE IF NOT EXISTS items (
   -- chargers) and can't be packed early: before the trip's starts_on date it
   -- is held in a separate "Day of" group instead of its normal category.
   day_of BOOLEAN NOT NULL DEFAULT FALSE,
+  -- Per-trip override of day_of, set from the quick "day of" button on an
+  -- item row. Cleared (like checked) whenever a new trip starts.
+  day_of_trip BOOLEAN NOT NULL DEFAULT FALSE,
   checked BOOLEAN NOT NULL DEFAULT FALSE,
   archived BOOLEAN NOT NULL DEFAULT FALSE,
   position INTEGER NOT NULL DEFAULT 0,
@@ -45,3 +48,6 @@ ALTER TABLE items ADD COLUMN IF NOT EXISTS category TEXT;
 
 -- Suppress-until-day-of flag (added Aug 2026).
 ALTER TABLE items ADD COLUMN IF NOT EXISTS day_of BOOLEAN NOT NULL DEFAULT FALSE;
+
+-- Per-trip day-of override, reset at trip start (added Aug 2026).
+ALTER TABLE items ADD COLUMN IF NOT EXISTS day_of_trip BOOLEAN NOT NULL DEFAULT FALSE;

@@ -11,6 +11,8 @@ export type Item = {
   category: string | null;
   /** In use until departure — held out of the list until the trip starts. */
   dayOf: boolean;
+  /** Same, but for the current trip only; cleared when a new trip starts. */
+  dayOfTrip: boolean;
   checked: boolean;
   position: number;
   archivedAt: string | null;

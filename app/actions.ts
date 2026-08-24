@@ -106,6 +106,16 @@ export async function updateItem(
   revalidatePath("/");
 }
 
+/** Quick per-trip day-of override from the item row; reset at trip start. */
+export async function setItemDayOfTrip(id: number, on: boolean): Promise<void> {
+  await assertAuthenticated();
+  await sql().query(`UPDATE items SET day_of_trip = $2 WHERE id = $1`, [
+    id,
+    on === true,
+  ]);
+  revalidatePath("/");
+}
+
 export async function archiveItem(id: number): Promise<void> {
   await assertAuthenticated();
   await sql().query(
@@ -239,6 +249,6 @@ export async function startNewTrip(
       stats ? JSON.stringify(stats) : null,
     ],
   );
-  await sql().query(`UPDATE items SET checked = FALSE`);
+  await sql().query(`UPDATE items SET checked = FALSE, day_of_trip = FALSE`);
   revalidatePath("/");
 }
