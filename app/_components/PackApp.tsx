@@ -97,7 +97,7 @@ function visibleForTrip(item: Item, trip: Trip): boolean {
 
 function chipClass(kind: "hot" | "cold" | "pack"): string {
   const base =
-    "rounded px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide";
+    "max-w-24 truncate rounded px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide";
   if (kind === "hot")
     return `${base} bg-amber-100 text-amber-700 dark:bg-amber-950 dark:text-amber-400`;
   if (kind === "cold")
@@ -421,7 +421,7 @@ export function PackApp({
                       />
                     ) : (
                       <div className="flex min-h-11 items-center">
-                        <span className="min-w-0 flex-1 py-2 pl-3 text-[15px] leading-snug text-neutral-400 dark:text-neutral-500">
+                        <span className="min-w-0 flex-1 break-words py-2 pl-3 text-[15px] leading-snug text-neutral-400 dark:text-neutral-500">
                           {item.title}
                         </span>
                         <span className="flex shrink-0 items-center gap-1">
@@ -584,10 +584,10 @@ function GroupCard({
         >
           <polyline points="6 9 12 15 18 9" />
         </svg>
-        <span className="text-[12px] font-bold uppercase tracking-wide text-neutral-500 dark:text-neutral-400">
+        <span className="min-w-0 break-words text-[12px] font-bold uppercase tracking-wide text-neutral-500 dark:text-neutral-400">
           {title}
         </span>
-        <span className="ml-auto text-xs tabular-nums text-neutral-400 dark:text-neutral-500">
+        <span className="ml-auto shrink-0 text-xs tabular-nums text-neutral-400 dark:text-neutral-500">
           {count}
         </span>
       </button>
@@ -641,7 +641,7 @@ function Row({
               className="size-5 shrink-0 accent-sky-600"
             />
             <span
-              className={`min-w-0 flex-1 text-[15px] leading-snug ${
+              className={`min-w-0 flex-1 break-words text-[15px] leading-snug ${
                 item.checked
                   ? "text-neutral-400 line-through dark:text-neutral-600"
                   : ""
@@ -743,7 +743,7 @@ function PackToggles({
               onChange(on ? active.filter((x) => x !== p) : [...active, p])
             }
             aria-pressed={on}
-            className={`relative rounded-full px-3 py-1.5 text-xs font-semibold capitalize transition active:scale-95 ${
+            className={`relative max-w-full break-words rounded-full px-3 py-1.5 text-xs font-semibold capitalize transition active:scale-95 ${
               on
                 ? "bg-teal-600 text-white shadow-sm"
                 : "bg-black/5 text-neutral-600 dark:bg-white/10 dark:text-neutral-300"
@@ -765,7 +765,7 @@ function PackToggles({
 function StatsBlock({ stats }: { stats: TripStats }) {
   const deg = (n: number | null) => (n === null ? "—" : `${n}°`);
   return (
-    <div className="rounded-lg bg-sky-50 px-3 py-2 text-[13px] leading-relaxed dark:bg-sky-950/30">
+    <div className="break-words rounded-lg bg-sky-50 px-3 py-2 text-[13px] leading-relaxed dark:bg-sky-950/30">
       <p className="font-semibold">{stats.place}</p>
       <p>
         Avg {deg(stats.avgHigh)} / {deg(stats.avgLow)} · Hottest{" "}
@@ -1100,7 +1100,7 @@ function ItemEditor({
   ];
 
   const pill = (active: boolean) =>
-    `rounded-full px-2.5 py-1 text-xs font-semibold capitalize transition active:scale-95 ${
+    `max-w-full break-words rounded-full px-2.5 py-1 text-xs font-semibold capitalize transition active:scale-95 ${
       active
         ? "bg-sky-600 text-white shadow-sm"
         : "bg-black/5 text-neutral-600 dark:bg-white/10 dark:text-neutral-300"

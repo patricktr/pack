@@ -46,8 +46,8 @@ export default async function ArchivePage() {
                 className="flex min-h-11 items-center gap-3 border-b border-black/5 py-2 pl-3 pr-2 last:border-b-0 dark:border-white/5"
               >
                 <div className="min-w-0 flex-1">
-                  <p className="text-[15px] leading-snug">{item.title}</p>
-                  <p className="text-xs text-neutral-400 dark:text-neutral-500">
+                  <p className="break-words text-[15px] leading-snug">{item.title}</p>
+                  <p className="break-words text-xs text-neutral-400 dark:text-neutral-500">
                     {SECTION_LABELS[item.section] ?? item.section}
                     {item.category ? ` · ${item.category}` : ""}
                     {item.weather ? ` · ${item.weather}` : ""}

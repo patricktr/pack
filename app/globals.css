@@ -19,6 +19,15 @@
   }
 }
 
+/* Never let one stray wide element (a long unbroken word, an off-screen
+   badge) give the whole page a horizontal scroll on phones. `clip` keeps the
+   viewport from becoming a horizontal scroll container; the `hidden` line is
+   the fallback for browsers without `clip` (pre-Safari 16). */
+html {
+  overflow-x: hidden;
+  overflow-x: clip;
+}
+
 body {
   background: var(--background);
   color: var(--foreground);
