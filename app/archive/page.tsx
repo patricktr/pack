@@ -52,6 +52,7 @@ export default async function ArchivePage() {
                     {item.category ? ` · ${item.category}` : ""}
                     {item.weather ? ` · ${item.weather}` : ""}
                     {item.pack ? ` · ${item.pack}` : ""}
+                    {item.dayOf ? " · day of" : ""}
                     {item.archivedAt
                       ? ` · archived ${new Date(item.archivedAt).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}`
                       : ""}

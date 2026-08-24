@@ -9,6 +9,8 @@ export type Item = {
   weather: Weather | null;
   pack: string | null;
   category: string | null;
+  /** In use until departure — held out of the list until the trip starts. */
+  dayOf: boolean;
   checked: boolean;
   position: number;
   archivedAt: string | null;

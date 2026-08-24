@@ -20,6 +20,13 @@ trip.
   The set points that drive all of this live in
   [lib/setpoints.ts](lib/setpoints.ts) (`SETPOINTS`).
   Starting the trip clears every checkbox and keeps all items.
+- **Day of** marks an item that's in use until departure (the kid's
+  nightlight, phone chargers) and can't be packed the day before. While
+  today is before the trip's departure date, those items are held in a
+  muted "🌙 Day of" card at the bottom of the packing list; on departure
+  day they rejoin their normal groups, tagged `day of`. Toggle it in any
+  item's editor ("Pack anytime" / "🌙 Day of only"). The date boundary is
+  pinned to America/New_York — packing happens at home.
 - **Archive** hides an item from the list but keeps it forever (restorable
   from `/archive`).
 - The whole site sits behind a single password (`APP_PASSWORD`), verified on

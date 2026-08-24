@@ -11,6 +11,7 @@ type ItemRow = {
   weather: Weather | null;
   pack: string | null;
   category: string | null;
+  day_of: boolean;
   checked: boolean;
   position: number;
   archived_at: string | null;
@@ -24,6 +25,7 @@ function toItem(row: ItemRow): Item {
     weather: row.weather,
     pack: row.pack,
     category: row.category,
+    dayOf: row.day_of,
     checked: row.checked,
     position: row.position,
     archivedAt: row.archived_at,
@@ -32,7 +34,7 @@ function toItem(row: ItemRow): Item {
 
 export async function getItems(): Promise<Item[]> {
   const rows = (await sql().query(
-    `SELECT id, title, section, weather, pack, category, checked, position, archived_at
+    `SELECT id, title, section, weather, pack, category, day_of, checked, position, archived_at
      FROM items WHERE NOT archived
      ORDER BY position, id`,
   )) as ItemRow[];
@@ -41,7 +43,7 @@ export async function getItems(): Promise<Item[]> {
 
 export async function getArchivedItems(): Promise<Item[]> {
   const rows = (await sql().query(
-    `SELECT id, title, section, weather, pack, category, checked, position, archived_at
+    `SELECT id, title, section, weather, pack, category, day_of, checked, position, archived_at
      FROM items WHERE archived
      ORDER BY archived_at DESC NULLS LAST, id`,
   )) as ItemRow[];

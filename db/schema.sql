@@ -13,6 +13,10 @@ CREATE TABLE IF NOT EXISTS items (
   -- Display group within the packing section ('tech', 'clothes', 'outdoors',
   -- ...). NULL falls into the "Other" group. Unused for house/abdul items.
   category TEXT,
+  -- TRUE = the item is in use until departure (kid's nightlight, phone
+  -- chargers) and can't be packed early: before the trip's starts_on date it
+  -- is held in a separate "Day of" group instead of its normal category.
+  day_of BOOLEAN NOT NULL DEFAULT FALSE,
   checked BOOLEAN NOT NULL DEFAULT FALSE,
   archived BOOLEAN NOT NULL DEFAULT FALSE,
   position INTEGER NOT NULL DEFAULT 0,
@@ -38,3 +42,6 @@ ALTER TABLE trip ADD COLUMN IF NOT EXISTS weather_stats JSONB;
 
 -- Logical display groups within the packing section (added Aug 2026).
 ALTER TABLE items ADD COLUMN IF NOT EXISTS category TEXT;
+
+-- Suppress-until-day-of flag (added Aug 2026).
+ALTER TABLE items ADD COLUMN IF NOT EXISTS day_of BOOLEAN NOT NULL DEFAULT FALSE;

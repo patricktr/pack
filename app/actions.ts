@@ -87,11 +87,12 @@ export async function updateItem(
     weather: unknown;
     pack: unknown;
     category: unknown;
+    dayOf: unknown;
   },
 ): Promise<void> {
   await assertAuthenticated();
   await sql().query(
-    `UPDATE items SET title = $2, section = $3, weather = $4, pack = $5, category = $6 WHERE id = $1`,
+    `UPDATE items SET title = $2, section = $3, weather = $4, pack = $5, category = $6, day_of = $7 WHERE id = $1`,
     [
       id,
       cleanTitle(fields.title),
@@ -99,6 +100,7 @@ export async function updateItem(
       cleanWeather(fields.weather),
       cleanPack(fields.pack),
       cleanCategory(fields.category),
+      fields.dayOf === true,
     ],
   );
   revalidatePath("/");
