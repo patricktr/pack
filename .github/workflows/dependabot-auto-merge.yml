@@ -1,0 +1,155 @@
+name: Dependabot auto-merge
+
+# Auto-merges Dependabot minor/patch version bumps once all other checks pass.
+# Major bumps are left for manual review.
+#
+# A PR is only merged when its branch already contains the current base tip.
+# Without that rule, two PRs branched from the same commit each pass CI against
+# their own lockfile, and merging both makes git text-merge the second one's
+# lockfile diff onto an already-moved base -- producing duplicate YAML keys and
+# an install that fails on the base branch and on every open PR.
+#
+# When the branch is behind, this job updates it and then KEEPS GOING in the
+# same run. It must not update the branch and exit expecting to be re-invoked:
+# the update is pushed with GITHUB_TOKEN, and GitHub deliberately does not start
+# new workflow runs from GITHUB_TOKEN pushes. An earlier version assumed the
+# opposite and left every PR that fell behind stranded with no auto-merge check
+# at all, waiting for an event that never arrives.
+
+on:
+  pull_request_target:
+    types: [opened, synchronize, reopened]
+
+permissions:
+  contents: write
+  pull-requests: write
+
+# Scoped to a single PR, not the whole repo. A repo-wide group looks like safe
+# serialization, but GitHub cancels an already-pending run when a newer one
+# queues into the same group, so a batch of Dependabot PRs loses the middle
+# ones. Cross-PR safety comes from the base-tip checks below.
+concurrency:
+  group: dependabot-auto-merge-${{ github.repository }}-${{ github.event.pull_request.number }}
+  cancel-in-progress: false
+
+jobs:
+  auto-merge:
+    name: auto-merge
+    if: ${{ github.event.pull_request.user.login == 'dependabot[bot]' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Fetch Dependabot metadata
+        id: meta
+        uses: dependabot/fetch-metadata@v2
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Merge when up to date and green (minor/patch only)
+        if: ${{ contains(fromJSON('["version-update:semver-minor","version-update:semver-patch"]'), steps.meta.outputs.update-type) }}
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR: ${{ github.event.pull_request.number }}
+          REPO: ${{ github.repository }}
+          BASE: ${{ github.event.pull_request.base.ref }}
+        run: |
+          set -uo pipefail
+
+          # Up to three passes. Each pass re-reads the head, because updating the
+          # branch rewrites it and nothing else will tell us it moved.
+          for attempt in 1 2 3; do
+            HEAD_SHA=$(gh pr view "$PR" --repo "$REPO" --json headRefOid --jq .headRefOid)
+            STATE=$(gh pr view "$PR" --repo "$REPO" --json state --jq .state)
+            if [ "$STATE" != "OPEN" ]; then
+              echo "PR is $STATE - nothing to do."
+              exit 0
+            fi
+
+            # --- Is the branch behind the base? ---
+            BEHIND=$(gh api "repos/$REPO/compare/$BASE...$HEAD_SHA" --jq '.behind_by' 2>/dev/null || echo "")
+            if [ -z "$BEHIND" ]; then
+              echo "::warning::Could not determine how far behind $BASE this PR is - not merging."
+              exit 0
+            fi
+            if [ "$BEHIND" -gt 0 ]; then
+              echo "::notice::Attempt $attempt: $BEHIND commit(s) behind $BASE - updating the branch."
+              if ! gh pr update-branch "$PR" --repo "$REPO"; then
+                echo "::warning::update-branch failed (likely a conflict). Leaving for Dependabot to rebase."
+                exit 0
+              fi
+              # The push above uses GITHUB_TOKEN and will NOT start another run,
+              # so carry on here rather than waiting to be called again.
+              sleep 20
+              continue
+            fi
+
+            # --- Wait for this head's other checks to settle ---
+            settled=0
+            for i in $(seq 1 20); do
+              sleep 30
+              json=$(gh pr checks "$PR" --repo "$REPO" --json name,bucket 2>/dev/null || echo '[]')
+              # Ignore this workflow's own check so we don't wait on ourselves.
+              ext=$(echo "$json" | jq '[.[] | select((.name | ascii_downcase) | test("auto-merge") | not)]')
+              failed=$(echo "$ext" | jq '[.[] | select(.bucket == "fail")] | length')
+              pending=$(echo "$ext" | jq '[.[] | select(.bucket == "pending")] | length')
+              if [ "$failed" -gt 0 ]; then
+                echo "A required check failed - not merging."
+                exit 0
+              fi
+              if [ "$pending" -eq 0 ]; then settled=1; break; fi
+            done
+            if [ "$settled" != "1" ]; then
+              echo "Checks did not settle in time - leaving for manual review."
+              exit 0
+            fi
+
+            # --- The base can move while checks run; re-check before merging ---
+            NOW_SHA=$(gh pr view "$PR" --repo "$REPO" --json headRefOid --jq .headRefOid)
+            BEHIND=$(gh api "repos/$REPO/compare/$BASE...$NOW_SHA" --jq '.behind_by' 2>/dev/null || echo "")
+            if [ -n "$BEHIND" ] && [ "$BEHIND" -gt 0 ]; then
+              echo "::notice::$BASE advanced while checks ran - going round again."
+              continue
+            fi
+
+            # --- Never let a corrupt pnpm lockfile reach the base branch ---
+            # Read-only content fetch; no PR code is executed. A key repeated
+            # inside packages: or snapshots: is the corruption signature (once in
+            # each section is normal).
+            LOCK_OK=1
+            if gh api "repos/$REPO/contents/pnpm-lock.yaml?ref=$NOW_SHA" \
+                 -H "Accept: application/vnd.github.raw" > /tmp/lock.yaml 2>/dev/null; then
+              python3 - /tmp/lock.yaml <<'PY' || LOCK_OK=0
+          import re, sys
+          section, seen, dupes = None, {}, []
+          for i, line in enumerate(open(sys.argv[1]), 1):
+              line = line.rstrip("\n")
+              if re.match(r'^(packages|snapshots|importers):\s*$', line):
+                  section = line.split(':')[0]
+                  seen[section] = {}
+                  continue
+              m = re.match(r"^  ('[^']+'|[^ :][^:]*):", line)
+              if m and section in ('packages', 'snapshots'):
+                  k = m.group(1).strip("'")
+                  if k in seen[section]:
+                      dupes.append("%s: %s (line %d, first at %d)" % (section, k, i, seen[section][k]))
+                  else:
+                      seen[section][k] = i
+          if dupes:
+              print("Duplicate keys in pnpm-lock.yaml:")
+              for d in dupes[:10]:
+                  print("  " + d)
+              sys.exit(1)
+          PY
+            fi
+            if [ "$LOCK_OK" != "1" ]; then
+              echo "::error::pnpm-lock.yaml on this branch has duplicate keys - refusing to merge."
+              gh pr comment "$PR" --repo "$REPO" --body \
+                "⚠️ Auto-merge refused: \`pnpm-lock.yaml\` on this branch has duplicate mapping keys, which makes \`pnpm install\` fail with \`ERR_PNPM_BROKEN_LOCKFILE\`. This usually means a base-branch update text-merged two lockfile changes. Ask Dependabot to regenerate it with \`@dependabot recreate\`."
+              exit 0
+            fi
+
+            gh pr merge "$PR" --repo "$REPO" --squash --delete-branch
+            exit 0
+          done
+
+          echo "::warning::Branch kept falling behind across 3 attempts - leaving for the next Dependabot rebase."
