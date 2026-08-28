@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import type {
@@ -29,6 +29,66 @@ import {
 import { SETPOINTS } from "@/lib/setpoints";
 
 const COLLAPSED_KEY = "pack:collapsed";
+
+// Collapse state lives in localStorage and reaches React through
+// useSyncExternalStore: the server snapshot is "nothing collapsed", and the
+// stored value arrives hydration-safely on the client without a set-state
+// effect. The cache keeps getSnapshot referentially stable per raw string.
+const NO_COLLAPSED: Record<string, boolean> = {};
+let collapsedCache: { raw: string | null; value: Record<string, boolean> } = {
+  raw: null,
+  value: NO_COLLAPSED,
+};
+const collapsedListeners = new Set<() => void>();
+
+function readCollapsed(): Record<string, boolean> {
+  let raw: string | null = null;
+  try {
+    raw = localStorage.getItem(COLLAPSED_KEY);
+  } catch {
+    // storage unavailable — treat as nothing collapsed
+  }
+  if (collapsedCache.raw !== raw) {
+    let value = NO_COLLAPSED;
+    if (raw) {
+      try {
+        const parsed = JSON.parse(raw);
+        if (parsed && typeof parsed === "object") value = parsed;
+      } catch {
+        // ignore corrupt state
+      }
+    }
+    collapsedCache = { raw, value };
+  }
+  return collapsedCache.value;
+}
+
+function serverCollapsed(): Record<string, boolean> {
+  return NO_COLLAPSED;
+}
+
+function subscribeCollapsed(listener: () => void): () => void {
+  collapsedListeners.add(listener);
+  return () => {
+    collapsedListeners.delete(listener);
+  };
+}
+
+function writeCollapsed(next: Record<string, boolean>) {
+  try {
+    localStorage.setItem(COLLAPSED_KEY, JSON.stringify(next));
+  } catch {
+    // storage unavailable — collapse state just won't survive the session
+  }
+  let raw: string | null = null;
+  try {
+    raw = localStorage.getItem(COLLAPSED_KEY);
+  } catch {
+    // keep raw as null
+  }
+  collapsedCache = { raw, value: next };
+  for (const listener of collapsedListeners) listener();
+}
 
 // The Abdul section is toggled per trip through a chip that lives in
 // trip.packs alongside the real pack tags ('water', 'camping', ...).
@@ -159,7 +219,11 @@ export function PackApp({
     [...new Set([...knownPacks, ...initialItems.map((i) => i.pack).filter(Boolean) as string[]])].sort(),
   );
   const [editingId, setEditingId] = useState<number | null>(null);
-  const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
+  const collapsed = useSyncExternalStore(
+    subscribeCollapsed,
+    readCollapsed,
+    serverCollapsed,
+  );
   const [hiddenOpen, setHiddenOpen] = useState(false);
   // While on, tapping a packing item marks it "not needed this trip" instead
   // of packed. Client-only; auto-enabled right after starting a new trip.
@@ -179,14 +243,6 @@ export function PackApp({
     [],
   );
 
-  useEffect(() => {
-    try {
-      setCollapsed(JSON.parse(localStorage.getItem(COLLAPSED_KEY) ?? "{}"));
-    } catch {
-      // ignore corrupt state
-    }
-  }, []);
-
   const categories = useMemo(
     () =>
       [
@@ -201,11 +257,8 @@ export function PackApp({
   const fail = () => router.refresh();
 
   function toggleGroup(key: string) {
-    setCollapsed((prev) => {
-      const next = { ...prev, [key]: !prev[key] };
-      localStorage.setItem(COLLAPSED_KEY, JSON.stringify(next));
-      return next;
-    });
+    const current = readCollapsed();
+    writeCollapsed({ ...current, [key]: !current[key] });
   }
 
   function showToast(item: Item, kind: ToastKind, wasOn: boolean) {
@@ -403,11 +456,11 @@ export function PackApp({
   const anyExpanded = allGroupKeys.some((k) => !collapsed[k]);
 
   function toggleAll() {
-    const next = anyExpanded
-      ? { ...collapsed, ...Object.fromEntries(allGroupKeys.map((k) => [k, true])) }
-      : {};
-    setCollapsed(next);
-    localStorage.setItem(COLLAPSED_KEY, JSON.stringify(next));
+    writeCollapsed(
+      anyExpanded
+        ? { ...collapsed, ...Object.fromEntries(allGroupKeys.map((k) => [k, true])) }
+        : {},
+    );
   }
 
   const rowProps = {
