@@ -19,6 +19,7 @@ import {
   archiveItem,
   lookupWeatherAction,
   repackItem,
+  setItemDayOfTrip,
   setTrip,
   setTripPhase,
   skipItem,
@@ -168,14 +169,35 @@ function visibleForTrip(item: Item, trip: Trip): boolean {
   return true;
 }
 
-function chipClass(kind: "hot" | "cold" | "pack"): string {
+function chipClass(kind: "hot" | "cold" | "pack" | "dayof"): string {
   const base =
-    "rounded px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide";
+    "max-w-24 truncate rounded px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide";
   if (kind === "hot")
     return `${base} bg-amber-100 text-amber-700 dark:bg-amber-950 dark:text-amber-400`;
   if (kind === "cold")
     return `${base} bg-blue-100 text-blue-700 dark:bg-blue-950 dark:text-blue-400`;
+  if (kind === "dayof")
+    return `${base} bg-violet-100 text-violet-700 dark:bg-violet-950 dark:text-violet-400`;
   return `${base} bg-teal-100 text-teal-700 dark:bg-teal-950 dark:text-teal-400`;
+}
+
+// Packing happens at home, so pin "today" to the household's timezone: the
+// server (UTC) and every client then agree on the date and hydration stays
+// clean, instead of a nightlight unsuppressing at 8pm the evening before.
+function todayISO(): string {
+  return new Date().toLocaleDateString("en-CA", {
+    timeZone: "America/New_York",
+  });
+}
+
+/** Day-of on every trip (item setting) or just this one (quick button). */
+function effectiveDayOf(item: Item): boolean {
+  return item.dayOf || item.dayOfTrip;
+}
+
+/** Held back for now: in use until departure, and the trip hasn't started. */
+function dayOfHeld(item: Item, trip: Trip, today: string): boolean {
+  return effectiveDayOf(item) && trip.startsOn !== null && today < trip.startsOn;
 }
 
 function tomorrowISO(): string {
@@ -326,6 +348,13 @@ export function PackApp({
     setToast(null);
   }
 
+  function handleDayOfTrip(item: Item, on: boolean) {
+    setItems((prev) =>
+      prev.map((i) => (i.id === item.id ? { ...i, dayOfTrip: on } : i)),
+    );
+    setItemDayOfTrip(item.id, on).catch(fail);
+  }
+
   function handleTripChange(weather: TripWeather, tripPacks: string[]) {
     setTripState((prev) => ({ ...prev, weather, packs: tripPacks }));
     setTrip(weather, tripPacks).catch(fail);
@@ -343,7 +372,13 @@ export function PackApp({
     meta: TripMeta,
   ) {
     setItems((prev) =>
-      prev.map((i) => ({ ...i, checked: false, skipped: false, repacked: false })),
+      prev.map((i) => ({
+        ...i,
+        checked: false,
+        skipped: false,
+        repacked: false,
+        dayOfTrip: false,
+      })),
     );
     setTripState((prev) => ({
       ...prev,
@@ -387,6 +422,8 @@ export function PackApp({
           weather: null,
           pack: null,
           category: null,
+          dayOf: false,
+          dayOfTrip: false,
           checked: false,
           skipped: false,
           repacked: false,
@@ -410,11 +447,26 @@ export function PackApp({
 
   const returning = trip.phase === "return";
 
-  const packingLeft = visible.filter(
-    (i) => i.section === "packing" && !i.checked && !i.skipped,
+  // Items in use until departure (kid's nightlight, chargers) are held out of
+  // their normal groups into one "Day of" card until the trip's start date.
+  // A skipped item is already resolved, so the skip wins over the hold.
+  const today = todayISO();
+  const heldItems = visible.filter(
+    (i) => !i.checked && !i.skipped && dayOfHeld(i, trip, today),
   );
-  const houseLeft = visible.filter((i) => i.section === "house" && !i.checked);
-  const abdulLeft = visible.filter((i) => i.section === "abdul" && !i.checked);
+  const packingLeft = visible.filter(
+    (i) =>
+      i.section === "packing" &&
+      !i.checked &&
+      !i.skipped &&
+      !dayOfHeld(i, trip, today),
+  );
+  const houseLeft = visible.filter(
+    (i) => i.section === "house" && !i.checked && !dayOfHeld(i, trip, today),
+  );
+  const abdulLeft = visible.filter(
+    (i) => i.section === "abdul" && !i.checked && !dayOfHeld(i, trip, today),
+  );
   const done = visible.filter((i) => i.checked);
   const skippedItems = visible.filter((i) => i.section === "packing" && i.skipped);
 
@@ -449,6 +501,7 @@ export function PackApp({
       ]
     : [
         ...packingGroups.map(([key]) => `p:${key}`),
+        ...(heldItems.length > 0 ? ["dayof"] : []),
         "house",
         ...(abdulOn ? ["abdul"] : []),
         ...doneGroups.map(([key]) => `d:${key}`),
@@ -469,10 +522,14 @@ export function PackApp({
     categories,
     returning,
     skipMode,
+    // The quick "day of" button only helps while marking would actually hold
+    // the item — i.e. the trip has a departure date that hasn't arrived.
+    canMarkDayOf: trip.startsOn !== null && today < trip.startsOn,
     onToggle: handleToggle,
     onEdit: setEditingId,
     onSave: handleSave,
     onArchive: handleArchive,
+    onDayOfTrip: handleDayOfTrip,
   };
 
   return (
@@ -511,7 +568,12 @@ export function PackApp({
       <TripCard
         trip={trip}
         packs={packs}
-        showGoHome={packingLeft.length === 0}
+        showGoHome={
+          // Held day-of items are still unresolved — they can't have been
+          // packed yet, so heading home isn't on the table either.
+          packingLeft.length === 0 &&
+          !heldItems.some((i) => i.section === "packing")
+        }
         onChange={handleTripChange}
         onStart={handleStartTrip}
         onPhase={handlePhase}
@@ -613,6 +675,22 @@ export function PackApp({
         <div className="overflow-hidden rounded-xl bg-white shadow-sm dark:bg-neutral-900">
           <AddRow onAdd={(title) => handleAdd(title, "packing")} />
         </div>
+        {heldItems.length > 0 && trip.startsOn ? (
+          <GroupCard
+            title={`🌙 Day of · ${fmtDate(trip.startsOn)}`}
+            count={heldItems.length}
+            collapsed={!!collapsed["dayof"]}
+            onToggle={() => toggleGroup("dayof")}
+            muted
+          >
+            <li className="px-3 pt-2 text-xs text-neutral-400 dark:text-neutral-500">
+              In use until you leave — pack these {fmtDate(trip.startsOn)}.
+            </li>
+            {heldItems.map((item) => (
+              <Row key={item.id} item={item} {...rowProps} />
+            ))}
+          </GroupCard>
+        ) : null}
         {hiddenCount > 0 ? (
           <div>
             <button
@@ -655,7 +733,7 @@ export function PackApp({
                       />
                     ) : (
                       <div className="flex min-h-11 items-center">
-                        <span className="min-w-0 flex-1 py-2 pl-3 text-[15px] leading-snug text-neutral-400 dark:text-neutral-500">
+                        <span className="min-w-0 flex-1 break-words py-2 pl-3 text-[15px] leading-snug text-neutral-400 dark:text-neutral-500">
                           {item.title}
                         </span>
                         <span className="flex shrink-0 items-center gap-1">
@@ -666,6 +744,9 @@ export function PackApp({
                           ) : null}
                           {item.pack ? (
                             <span className={chipClass("pack")}>{item.pack}</span>
+                          ) : null}
+                          {effectiveDayOf(item) ? (
+                            <span className={chipClass("dayof")}>day of</span>
                           ) : null}
                         </span>
                         <button
@@ -847,10 +928,10 @@ function GroupCard({
         >
           <polyline points="6 9 12 15 18 9" />
         </svg>
-        <span className="text-[12px] font-bold uppercase tracking-wide text-neutral-500 dark:text-neutral-400">
+        <span className="min-w-0 break-words text-[12px] font-bold uppercase tracking-wide text-neutral-500 dark:text-neutral-400">
           {title}
         </span>
-        <span className="ml-auto text-xs tabular-nums text-neutral-400 dark:text-neutral-500">
+        <span className="ml-auto shrink-0 text-xs tabular-nums text-neutral-400 dark:text-neutral-500">
           {count}
         </span>
       </button>
@@ -871,10 +952,12 @@ function Row({
   categories,
   returning,
   skipMode,
+  canMarkDayOf,
   onToggle,
   onEdit,
   onSave,
   onArchive,
+  onDayOfTrip,
 }: {
   item: Item;
   editingId: number | null;
@@ -882,10 +965,12 @@ function Row({
   categories: string[];
   returning: boolean;
   skipMode: boolean;
+  canMarkDayOf: boolean;
   onToggle: (item: Item) => void;
   onEdit: (id: number | null) => void;
   onSave: (item: Item, draft: Draft) => void;
   onArchive: (item: Item) => void;
+  onDayOfTrip: (item: Item, on: boolean) => void;
 }) {
   // Three looks: a skipped row (filled ⊘, tap restores), a skip target while
   // "not needed" mode is on (hollow ⊘, tap skips), or the plain checkbox —
@@ -945,7 +1030,7 @@ function Row({
                 </svg>
               </span>
               <span
-                className={`min-w-0 flex-1 text-[15px] leading-snug ${
+                className={`min-w-0 flex-1 break-words text-[15px] leading-snug ${
                   skipRow ? "text-neutral-400 dark:text-neutral-600" : ""
                 }`}
               >
@@ -962,7 +1047,7 @@ function Row({
                 className="size-5 shrink-0 accent-sky-600"
               />
               <span
-                className={`min-w-0 flex-1 text-[15px] leading-snug ${
+                className={`min-w-0 flex-1 break-words text-[15px] leading-snug ${
                   value
                     ? "text-neutral-400 line-through dark:text-neutral-600"
                     : ""
@@ -973,6 +1058,30 @@ function Row({
               {chips}
             </label>
           )}
+          {/* Day-of slot: outside the label so taps don't toggle the checkbox.
+              Hidden on the way home and while a row is in skip clothing —
+              holding an item only means something while packing. */}
+          {!returning && !skipRow && !skipTarget ? (
+            item.dayOfTrip && !item.dayOf ? (
+              <button
+                onClick={() => onDayOfTrip(item, false)}
+                aria-label={`Stop holding ${item.title} until the day of departure`}
+                className={`${chipClass("dayof")} ml-1 shrink-0 py-1 transition active:scale-95`}
+              >
+                day of ×
+              </button>
+            ) : item.dayOf ? (
+              <span className={`${chipClass("dayof")} ml-1 shrink-0`}>day of</span>
+            ) : canMarkDayOf && !item.checked ? (
+              <button
+                onClick={() => onDayOfTrip(item, true)}
+                aria-label={`Hold ${item.title} until the day of departure`}
+                className="ml-1 shrink-0 rounded border border-dashed border-neutral-300 px-1.5 py-1 text-[10px] font-semibold uppercase tracking-wide text-neutral-400 transition hover:border-violet-400 hover:text-violet-600 active:scale-95 dark:border-neutral-700 dark:text-neutral-500 dark:hover:border-violet-600 dark:hover:text-violet-400"
+              >
+                day of
+              </button>
+            ) : null
+          ) : null}
           <button
             onClick={() => onEdit(item.id)}
             aria-label={`Edit ${item.title}`}
@@ -1058,7 +1167,7 @@ function PackToggles({
               onChange(on ? active.filter((x) => x !== p) : [...active, p])
             }
             aria-pressed={on}
-            className={`relative rounded-full px-3 py-1.5 text-xs font-semibold capitalize transition active:scale-95 ${
+            className={`relative max-w-full break-words rounded-full px-3 py-1.5 text-xs font-semibold capitalize transition active:scale-95 ${
               on
                 ? "bg-teal-600 text-white shadow-sm"
                 : "bg-black/5 text-neutral-600 dark:bg-white/10 dark:text-neutral-300"
@@ -1080,7 +1189,7 @@ function PackToggles({
 function StatsBlock({ stats }: { stats: TripStats }) {
   const deg = (n: number | null) => (n === null ? "—" : `${n}°`);
   return (
-    <div className="rounded-lg bg-sky-50 px-3 py-2 text-[13px] leading-relaxed dark:bg-sky-950/30">
+    <div className="break-words rounded-lg bg-sky-50 px-3 py-2 text-[13px] leading-relaxed dark:bg-sky-950/30">
       <p className="font-semibold">{stats.place}</p>
       <p>
         Avg {deg(stats.avgHigh)} / {deg(stats.avgLow)} · Hottest{" "}
@@ -1419,6 +1528,7 @@ type Draft = {
   weather: Weather | null;
   pack: string | null;
   category: string | null;
+  dayOf: boolean;
 };
 
 function ItemEditor({
@@ -1442,6 +1552,7 @@ function ItemEditor({
     weather: item.weather,
     pack: item.pack,
     category: item.category,
+    dayOf: item.dayOf,
   });
   const [newPack, setNewPack] = useState("");
   const [newCategory, setNewCategory] = useState("");
@@ -1450,6 +1561,12 @@ function ItemEditor({
     { label: "Any weather", value: null },
     { label: "☀️ Hot", value: "hot" },
     { label: "❄️ Cold", value: "cold" },
+  ];
+  // "Day of" = in use until departure (nightlight, chargers): held out of the
+  // list until the trip's start date so it can't be packed too early.
+  const dayOfOptions: { label: string; value: boolean }[] = [
+    { label: "Pack anytime", value: false },
+    { label: "🌙 Day of only", value: true },
   ];
   const sectionOptions: { label: string; value: Section }[] = [
     { label: "Packing", value: "packing" },
@@ -1462,7 +1579,7 @@ function ItemEditor({
   ];
 
   const pill = (active: boolean) =>
-    `rounded-full px-2.5 py-1 text-xs font-semibold capitalize transition active:scale-95 ${
+    `max-w-full break-words rounded-full px-2.5 py-1 text-xs font-semibold capitalize transition active:scale-95 ${
       active
         ? "bg-sky-600 text-white shadow-sm"
         : "bg-black/5 text-neutral-600 dark:bg-white/10 dark:text-neutral-300"
@@ -1483,6 +1600,18 @@ function ItemEditor({
             onClick={() => setDraft({ ...draft, weather: o.value })}
             aria-pressed={draft.weather === o.value}
             className={pill(draft.weather === o.value)}
+          >
+            {o.label}
+          </button>
+        ))}
+      </div>
+      <div className="flex flex-wrap gap-1.5">
+        {dayOfOptions.map((o) => (
+          <button
+            key={o.label}
+            onClick={() => setDraft({ ...draft, dayOf: o.value })}
+            aria-pressed={draft.dayOf === o.value}
+            className={pill(draft.dayOf === o.value)}
           >
             {o.label}
           </button>

@@ -19,13 +19,24 @@ trip.
   card if the pack is off while the stored forecast crosses the threshold.
   The set points that drive all of this live in
   [lib/setpoints.ts](lib/setpoints.ts) (`SETPOINTS`).
-  Starting the trip clears every check and "not needed" mark and keeps all
-  items.
+  Starting the trip clears every check, "not needed" mark, and per-trip
+  day-of hold, and keeps all items.
 - **Packed vs. not needed** — starting a trip lands in a "not needed" pass:
   tap the ⊘ on anything you're skipping this trip (it collects under a
   "Not needed" section; tap again to bring one back), hit Done, then pack.
   The header count only tracks what you actually mean to bring. The toggle
   chip on the Packing heading re-enters the pass any time.
+- **Day of** marks an item that's in use until departure (the kid's
+  nightlight, phone chargers) and can't be packed the day before. While
+  today is before the trip's departure date, those items are held in a
+  muted "🌙 Day of" card at the bottom of the packing list; on departure
+  day they rejoin their normal groups, tagged `day of`. Toggle it in any
+  item's editor ("Pack anytime" / "🌙 Day of only") for items that are
+  day-of on every trip, or tap the dashed `day of` button on an item's
+  row to hold it **for the current trip only** (undo via the chip's `×`;
+  cleared automatically when a new trip starts). The date boundary is
+  pinned to America/New_York — packing happens at home. Held items still
+  count as unresolved, so the go-home button waits for them.
 - **Time to go home** — once every packing item is packed or marked not
   needed, a 🏠 button appears on the trip card (hidden while packing so it
   doesn't take up space). When it's time to pack up (hotel checkout), it

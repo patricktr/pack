@@ -125,11 +125,12 @@ export async function updateItem(
     weather: unknown;
     pack: unknown;
     category: unknown;
+    dayOf: unknown;
   },
 ): Promise<void> {
   await assertAuthenticated();
   await sql().query(
-    `UPDATE items SET title = $2, section = $3, weather = $4, pack = $5, category = $6 WHERE id = $1`,
+    `UPDATE items SET title = $2, section = $3, weather = $4, pack = $5, category = $6, day_of = $7 WHERE id = $1`,
     [
       id,
       cleanTitle(fields.title),
@@ -137,8 +138,19 @@ export async function updateItem(
       cleanWeather(fields.weather),
       cleanPack(fields.pack),
       cleanCategory(fields.category),
+      fields.dayOf === true,
     ],
   );
+  revalidatePath("/");
+}
+
+/** Quick per-trip day-of override from the item row; reset at trip start. */
+export async function setItemDayOfTrip(id: number, on: boolean): Promise<void> {
+  await assertAuthenticated();
+  await sql().query(`UPDATE items SET day_of_trip = $2 WHERE id = $1`, [
+    id,
+    on === true,
+  ]);
   revalidatePath("/");
 }
 
@@ -157,7 +169,7 @@ export async function restoreItem(id: number): Promise<void> {
   await sql().query(
     `UPDATE items
      SET archived = FALSE, archived_at = NULL,
-         checked = FALSE, skipped = FALSE, repacked = FALSE
+         checked = FALSE, skipped = FALSE, repacked = FALSE, day_of_trip = FALSE
      WHERE id = $1`,
     [id],
   );
@@ -279,7 +291,8 @@ export async function startNewTrip(
     ],
   );
   await sql().query(
-    `UPDATE items SET checked = FALSE, skipped = FALSE, repacked = FALSE`,
+    `UPDATE items
+     SET checked = FALSE, skipped = FALSE, repacked = FALSE, day_of_trip = FALSE`,
   );
   revalidatePath("/");
 }
