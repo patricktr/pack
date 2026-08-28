@@ -38,3 +38,11 @@ ALTER TABLE trip ADD COLUMN IF NOT EXISTS weather_stats JSONB;
 
 -- Logical display groups within the packing section (added Aug 2026).
 ALTER TABLE items ADD COLUMN IF NOT EXISTS category TEXT;
+
+-- Trip lifecycle (added Aug 2026). 'skipped' marks an item "not needed this
+-- trip" (mutually exclusive with checked — the actions clear one when setting
+-- the other). 'repacked' tracks the end-of-trip repack pass. trip.phase flips
+-- to 'return' when it's time to pack up and go home.
+ALTER TABLE items ADD COLUMN IF NOT EXISTS skipped BOOLEAN NOT NULL DEFAULT FALSE;
+ALTER TABLE items ADD COLUMN IF NOT EXISTS repacked BOOLEAN NOT NULL DEFAULT FALSE;
+ALTER TABLE trip ADD COLUMN IF NOT EXISTS phase TEXT NOT NULL DEFAULT 'packing' CHECK (phase IN ('packing', 'return'));

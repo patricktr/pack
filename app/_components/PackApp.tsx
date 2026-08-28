@@ -8,6 +8,7 @@ import type {
   Section,
   Trip,
   TripMeta,
+  TripPhase,
   TripStats,
   TripWeather,
   Weather,
@@ -17,7 +18,10 @@ import {
   addItem,
   archiveItem,
   lookupWeatherAction,
+  repackItem,
   setTrip,
+  setTripPhase,
+  skipItem,
   startNewTrip,
   toggleItem,
   updateItem,
@@ -33,6 +37,15 @@ const ABDUL_PACK = "abdul";
 function withAbdulChip(packs: string[]): string[] {
   return packs.includes(ABDUL_PACK) ? packs : [...packs, ABDUL_PACK];
 }
+
+type ToastKind = "packed" | "skipped" | "repacked";
+
+// [label when the state turned on, label when it turned off]
+const TOAST_LABELS: Record<ToastKind, [string, string]> = {
+  packed: ["Packed", "Unpacked"],
+  skipped: ["Not needed", "Needed again"],
+  repacked: ["Repacked", "Unchecked"],
+};
 
 const CATEGORY_ORDER = [
   "tech",
@@ -148,10 +161,14 @@ export function PackApp({
   const [editingId, setEditingId] = useState<number | null>(null);
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
   const [hiddenOpen, setHiddenOpen] = useState(false);
+  // While on, tapping a packing item marks it "not needed this trip" instead
+  // of packed. Client-only; auto-enabled right after starting a new trip.
+  const [skipMode, setSkipMode] = useState(false);
   const [toast, setToast] = useState<{
     itemId: number;
     title: string;
-    wasChecked: boolean;
+    kind: ToastKind;
+    wasOn: boolean;
   } | null>(null);
   const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -191,26 +208,68 @@ export function PackApp({
     });
   }
 
-  function handleToggle(item: Item) {
-    setItems((prev) =>
-      prev.map((i) => (i.id === item.id ? { ...i, checked: !i.checked } : i)),
-    );
-    toggleItem(item.id, !item.checked).catch(fail);
-    // item.checked still holds the pre-toggle state — that's what undo restores.
-    setToast({ itemId: item.id, title: item.title, wasChecked: item.checked });
+  function showToast(item: Item, kind: ToastKind, wasOn: boolean) {
+    // wasOn holds the pre-toggle state — that's what undo restores.
+    setToast({ itemId: item.id, title: item.title, kind, wasOn });
     if (toastTimer.current) clearTimeout(toastTimer.current);
     toastTimer.current = setTimeout(() => setToast(null), 5000);
+  }
+
+  function handleToggle(item: Item) {
+    if (trip.phase === "return") {
+      setItems((prev) =>
+        prev.map((i) => (i.id === item.id ? { ...i, repacked: !i.repacked } : i)),
+      );
+      repackItem(item.id, !item.repacked).catch(fail);
+      showToast(item, "repacked", item.repacked);
+    } else if (item.skipped) {
+      // Tapping a skipped item always brings it back, whatever the mode.
+      setItems((prev) =>
+        prev.map((i) => (i.id === item.id ? { ...i, skipped: false } : i)),
+      );
+      skipItem(item.id, false).catch(fail);
+      showToast(item, "skipped", true);
+    } else if (skipMode && item.section === "packing" && !item.checked) {
+      setItems((prev) =>
+        prev.map((i) => (i.id === item.id ? { ...i, skipped: true } : i)),
+      );
+      skipItem(item.id, true).catch(fail);
+      showToast(item, "skipped", false);
+    } else {
+      setItems((prev) =>
+        prev.map((i) =>
+          i.id === item.id ? { ...i, checked: !i.checked, skipped: false } : i,
+        ),
+      );
+      toggleItem(item.id, !item.checked).catch(fail);
+      showToast(item, "packed", item.checked);
+    }
   }
 
   function handleUndo() {
     if (!toast) return;
     if (toastTimer.current) clearTimeout(toastTimer.current);
-    setItems((prev) =>
-      prev.map((i) =>
-        i.id === toast.itemId ? { ...i, checked: toast.wasChecked } : i,
-      ),
-    );
-    toggleItem(toast.itemId, toast.wasChecked).catch(fail);
+    const { itemId, kind, wasOn } = toast;
+    if (kind === "repacked") {
+      setItems((prev) =>
+        prev.map((i) => (i.id === itemId ? { ...i, repacked: wasOn } : i)),
+      );
+      repackItem(itemId, wasOn).catch(fail);
+    } else if (kind === "skipped") {
+      setItems((prev) =>
+        prev.map((i) =>
+          i.id === itemId
+            ? { ...i, skipped: wasOn, checked: wasOn ? false : i.checked }
+            : i,
+        ),
+      );
+      skipItem(itemId, wasOn).catch(fail);
+    } else {
+      setItems((prev) =>
+        prev.map((i) => (i.id === itemId ? { ...i, checked: wasOn } : i)),
+      );
+      toggleItem(itemId, wasOn).catch(fail);
+    }
     setToast(null);
   }
 
@@ -219,13 +278,30 @@ export function PackApp({
     setTrip(weather, tripPacks).catch(fail);
   }
 
+  function handlePhase(phase: TripPhase) {
+    setTripState((prev) => ({ ...prev, phase }));
+    setSkipMode(false);
+    setTripPhase(phase).catch(fail);
+  }
+
   function handleStartTrip(
     weather: TripWeather,
     tripPacks: string[],
     meta: TripMeta,
   ) {
-    setItems((prev) => prev.map((i) => ({ ...i, checked: false })));
-    setTripState((prev) => ({ ...prev, ...meta, weather, packs: tripPacks }));
+    setItems((prev) =>
+      prev.map((i) => ({ ...i, checked: false, skipped: false, repacked: false })),
+    );
+    setTripState((prev) => ({
+      ...prev,
+      ...meta,
+      weather,
+      packs: tripPacks,
+      phase: "packing",
+    }));
+    // A fresh trip starts in "not needed" mode: sweep the list for things to
+    // skip first, tap Done, then pack.
+    setSkipMode(true);
     startNewTrip(weather, tripPacks, meta).catch(fail);
   }
 
@@ -259,6 +335,8 @@ export function PackApp({
           pack: null,
           category: null,
           checked: false,
+          skipped: false,
+          repacked: false,
           position,
           archivedAt: null,
         },
@@ -277,12 +355,26 @@ export function PackApp({
   );
   const hiddenCount = hiddenItems.length;
 
-  const packingLeft = visible.filter((i) => i.section === "packing" && !i.checked);
+  const returning = trip.phase === "return";
+
+  const packingLeft = visible.filter(
+    (i) => i.section === "packing" && !i.checked && !i.skipped,
+  );
   const houseLeft = visible.filter((i) => i.section === "house" && !i.checked);
   const abdulLeft = visible.filter((i) => i.section === "abdul" && !i.checked);
   const done = visible.filter((i) => i.checked);
+  const skippedItems = visible.filter((i) => i.section === "packing" && i.skipped);
+
+  // The repack list deliberately ignores the trip's weather/pack filters: if
+  // an item was checked off as packed, it's physically along and has to make
+  // it home, whatever the chips say now.
+  const broughtItems = items.filter((i) => i.section === "packing" && i.checked);
+  const repackLeft = broughtItems.filter((i) => !i.repacked);
+  const repackDone = broughtItems.filter((i) => i.repacked);
 
   const packingGroups = groupByCategory(packingLeft);
+  const repackGroups = groupByCategory(repackLeft);
+  const repackDoneGroups = groupByCategory(repackDone);
   const doneGroups: [string, string, Item[]][] = [
     ...groupByCategory(done.filter((i) => i.section === "packing")).map(
       ([key, list]): [string, string, Item[]] => [key, categoryLabel(key), list],
@@ -297,12 +389,17 @@ export function PackApp({
 
   const abdulOn = trip.packs.includes(ABDUL_PACK);
 
-  const allGroupKeys = [
-    ...packingGroups.map(([key]) => `p:${key}`),
-    "house",
-    ...(abdulOn ? ["abdul"] : []),
-    ...doneGroups.map(([key]) => `d:${key}`),
-  ];
+  const allGroupKeys = returning
+    ? [
+        ...repackGroups.map(([key]) => `r:${key}`),
+        ...repackDoneGroups.map(([key]) => `rd:${key}`),
+      ]
+    : [
+        ...packingGroups.map(([key]) => `p:${key}`),
+        "house",
+        ...(abdulOn ? ["abdul"] : []),
+        ...doneGroups.map(([key]) => `d:${key}`),
+      ];
   const anyExpanded = allGroupKeys.some((k) => !collapsed[k]);
 
   function toggleAll() {
@@ -317,6 +414,8 @@ export function PackApp({
     editingId,
     packs,
     categories,
+    returning,
+    skipMode,
     onToggle: handleToggle,
     onEdit: setEditingId,
     onSave: handleSave,
@@ -330,7 +429,9 @@ export function PackApp({
           <h1 className="text-xl font-bold tracking-tight">Pack</h1>
           <div className="flex items-center gap-2">
             <p className="text-sm tabular-nums text-neutral-500 dark:text-neutral-400">
-              {done.length} / {visible.length} packed
+              {returning
+                ? `${repackDone.length} / ${broughtItems.length} repacked`
+                : `${done.length} / ${visible.length - skippedItems.length} packed`}
             </p>
             <button
               onClick={toggleAll}
@@ -357,12 +458,92 @@ export function PackApp({
       <TripCard
         trip={trip}
         packs={packs}
+        showGoHome={packingLeft.length === 0}
         onChange={handleTripChange}
         onStart={handleStartTrip}
+        onPhase={handlePhase}
       />
 
-      <SectionHeading title="Packing" note={`${packingLeft.length} to pack`} />
+      {returning ? (
+        <>
+          <SectionHeading title="Repack" note={`${repackLeft.length} to grab`} />
+          <div className="flex flex-col gap-2 px-2">
+            {broughtItems.length === 0 ? (
+              <p className="px-2 py-2 text-sm text-neutral-500 dark:text-neutral-400">
+                Nothing was checked off as packed this trip, so there&apos;s
+                nothing to round up.
+              </p>
+            ) : repackLeft.length === 0 ? (
+              <p className="rounded-xl border border-emerald-300 bg-emerald-50 px-3 py-2 text-sm font-semibold text-emerald-700 dark:border-emerald-800 dark:bg-emerald-950/30 dark:text-emerald-400">
+                🎉 Everything&apos;s back in the bags — safe travels home.
+              </p>
+            ) : null}
+            {repackGroups.map(([key, groupItems]) => (
+              <GroupCard
+                key={key}
+                title={categoryLabel(key)}
+                count={groupItems.length}
+                collapsed={!!collapsed[`r:${key}`]}
+                onToggle={() => toggleGroup(`r:${key}`)}
+              >
+                {groupItems.map((item) => (
+                  <Row key={item.id} item={item} {...rowProps} />
+                ))}
+              </GroupCard>
+            ))}
+          </div>
+          {repackDone.length > 0 ? (
+            <>
+              <SectionHeading
+                title="Back in the bags"
+                note={`${repackDone.length} done`}
+              />
+              <div className="flex flex-col gap-2 px-2">
+                {repackDoneGroups.map(([key, groupItems]) => (
+                  <GroupCard
+                    key={key}
+                    title={categoryLabel(key)}
+                    count={groupItems.length}
+                    collapsed={!!collapsed[`rd:${key}`]}
+                    onToggle={() => toggleGroup(`rd:${key}`)}
+                    muted
+                  >
+                    {groupItems.map((item) => (
+                      <Row key={item.id} item={item} {...rowProps} />
+                    ))}
+                  </GroupCard>
+                ))}
+              </div>
+            </>
+          ) : null}
+        </>
+      ) : (
+        <>
+      <SectionHeading
+        title="Packing"
+        note={`${packingLeft.length} to pack`}
+        action={
+          <button
+            onClick={() => setSkipMode((m) => !m)}
+            aria-pressed={skipMode}
+            className={`rounded-full px-2.5 py-1 text-[11px] font-bold uppercase tracking-wide transition active:scale-95 ${
+              skipMode
+                ? "bg-amber-500 text-white shadow-sm"
+                : "bg-black/5 text-neutral-500 dark:bg-white/10 dark:text-neutral-400"
+            }`}
+          >
+            {skipMode ? "✓ Done" : "⊘ Not needed"}
+          </button>
+        }
+      />
       <div className="flex flex-col gap-2 px-2">
+        {skipMode ? (
+          <p className="rounded-xl border border-amber-300 bg-amber-50 px-3 py-2 text-[13px] leading-snug text-amber-800 dark:border-amber-800 dark:bg-amber-950/30 dark:text-amber-300">
+            Tap anything you <strong>don&apos;t need this trip</strong> — it
+            moves to &ldquo;Not needed&rdquo; below. Hit Done when finished,
+            then pack.
+          </p>
+        ) : null}
         {packingGroups.map(([key, groupItems]) => (
           <GroupCard
             key={key}
@@ -501,6 +682,24 @@ export function PackApp({
         </>
       ) : null}
 
+      {skippedItems.length > 0 ? (
+        <>
+          <SectionHeading
+            title="Not needed"
+            note={`${skippedItems.length} skipped · tap to restore`}
+          />
+          <div className="px-2">
+            <ul className="overflow-hidden rounded-xl bg-white/60 shadow-sm dark:bg-neutral-900/60">
+              {skippedItems.map((item) => (
+                <Row key={item.id} item={item} {...rowProps} />
+              ))}
+            </ul>
+          </div>
+        </>
+      ) : null}
+        </>
+      )}
+
       {toast ? (
         // Sticky, not fixed: iOS Safari anchors fixed elements to the layout
         // viewport, which drifts below the visible screen as browser chrome
@@ -513,7 +712,7 @@ export function PackApp({
               className="pointer-events-auto flex w-full max-w-lg items-center gap-3 rounded-xl bg-neutral-900 py-1.5 pl-4 pr-1.5 text-sm text-white shadow-lg dark:bg-neutral-100 dark:text-neutral-900"
             >
               <span className="min-w-0 flex-1 truncate py-1.5">
-                {toast.wasChecked ? "Unpacked" : "Packed"} “{toast.title}”
+                {TOAST_LABELS[toast.kind][toast.wasOn ? 1 : 0]} “{toast.title}”
               </span>
               <button
                 onClick={handleUndo}
@@ -529,15 +728,26 @@ export function PackApp({
   );
 }
 
-function SectionHeading({ title, note }: { title: string; note: string }) {
+function SectionHeading({
+  title,
+  note,
+  action,
+}: {
+  title: string;
+  note: string;
+  action?: React.ReactNode;
+}) {
   return (
-    <div className="flex items-baseline justify-between px-4 pt-5 pb-1.5">
+    <div className="flex min-h-8 items-center justify-between gap-2 px-4 pt-5 pb-1.5">
       <h2 className="text-[13px] font-bold uppercase tracking-wide text-neutral-500 dark:text-neutral-400">
         {title}
       </h2>
-      <p className="text-xs tabular-nums text-neutral-400 dark:text-neutral-500">
-        {note}
-      </p>
+      <div className="flex items-center gap-2">
+        <p className="text-xs tabular-nums text-neutral-400 dark:text-neutral-500">
+          {note}
+        </p>
+        {action}
+      </div>
     </div>
   );
 }
@@ -606,6 +816,8 @@ function Row({
   editingId,
   packs,
   categories,
+  returning,
+  skipMode,
   onToggle,
   onEdit,
   onSave,
@@ -615,11 +827,32 @@ function Row({
   editingId: number | null;
   packs: string[];
   categories: string[];
+  returning: boolean;
+  skipMode: boolean;
   onToggle: (item: Item) => void;
   onEdit: (id: number | null) => void;
   onSave: (item: Item, draft: Draft) => void;
   onArchive: (item: Item) => void;
 }) {
+  // Three looks: a skipped row (filled ⊘, tap restores), a skip target while
+  // "not needed" mode is on (hollow ⊘, tap skips), or the plain checkbox —
+  // bound to `repacked` on the way home, `checked` on the way out.
+  const skipRow = !returning && item.skipped;
+  const skipTarget =
+    !returning && !skipRow && skipMode && item.section === "packing" && !item.checked;
+  const value = returning ? item.repacked : item.checked;
+
+  const chips = (
+    <span className="flex shrink-0 items-center gap-1">
+      {item.weather ? (
+        <span className={chipClass(item.weather)}>{item.weather}</span>
+      ) : null}
+      {item.pack ? (
+        <span className={chipClass("pack")}>{item.pack}</span>
+      ) : null}
+    </span>
+  );
+
   return (
     <li className="border-b border-black/5 last:border-b-0 dark:border-white/5">
       {editingId === item.id ? (
@@ -633,31 +866,60 @@ function Row({
         />
       ) : (
         <div className="flex min-h-11 items-center">
-          <label className="flex min-w-0 flex-1 cursor-pointer items-center gap-3 py-2 pl-3">
-            <input
-              type="checkbox"
-              checked={item.checked}
-              onChange={() => onToggle(item)}
-              className="size-5 shrink-0 accent-sky-600"
-            />
-            <span
-              className={`min-w-0 flex-1 text-[15px] leading-snug ${
-                item.checked
-                  ? "text-neutral-400 line-through dark:text-neutral-600"
-                  : ""
-              }`}
+          {skipRow || skipTarget ? (
+            <button
+              type="button"
+              onClick={() => onToggle(item)}
+              aria-pressed={skipRow}
+              aria-label={
+                skipRow
+                  ? `${item.title} — not needed this trip; tap to restore`
+                  : `Mark ${item.title} not needed this trip`
+              }
+              className="flex min-w-0 flex-1 cursor-pointer items-center gap-3 py-2 pl-3 text-left"
             >
-              {item.title}
-            </span>
-            <span className="flex shrink-0 items-center gap-1">
-              {item.weather ? (
-                <span className={chipClass(item.weather)}>{item.weather}</span>
-              ) : null}
-              {item.pack ? (
-                <span className={chipClass("pack")}>{item.pack}</span>
-              ) : null}
-            </span>
-          </label>
+              <span
+                aria-hidden="true"
+                className={`flex size-5 shrink-0 items-center justify-center ${
+                  skipRow
+                    ? "text-amber-500"
+                    : "text-neutral-300 dark:text-neutral-600"
+                }`}
+              >
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+                  <circle cx="12" cy="12" r="9" />
+                  <line x1="5.7" y1="5.7" x2="18.3" y2="18.3" />
+                </svg>
+              </span>
+              <span
+                className={`min-w-0 flex-1 text-[15px] leading-snug ${
+                  skipRow ? "text-neutral-400 dark:text-neutral-600" : ""
+                }`}
+              >
+                {item.title}
+              </span>
+              {chips}
+            </button>
+          ) : (
+            <label className="flex min-w-0 flex-1 cursor-pointer items-center gap-3 py-2 pl-3">
+              <input
+                type="checkbox"
+                checked={value}
+                onChange={() => onToggle(item)}
+                className="size-5 shrink-0 accent-sky-600"
+              />
+              <span
+                className={`min-w-0 flex-1 text-[15px] leading-snug ${
+                  value
+                    ? "text-neutral-400 line-through dark:text-neutral-600"
+                    : ""
+                }`}
+              >
+                {item.title}
+              </span>
+              {chips}
+            </label>
+          )}
           <button
             onClick={() => onEdit(item.id)}
             aria-label={`Edit ${item.title}`}
@@ -788,13 +1050,19 @@ function StatsBlock({ stats }: { stats: TripStats }) {
 function TripCard({
   trip,
   packs,
+  showGoHome,
   onChange,
   onStart,
+  onPhase,
 }: {
   trip: Trip;
   packs: string[];
+  // Only offer "time to go home" once every packing item is either packed or
+  // marked not needed — while packing it would just take up space.
+  showGoHome: boolean;
   onChange: (weather: TripWeather, packs: string[]) => void;
   onStart: (weather: TripWeather, packs: string[], meta: TripMeta) => void;
+  onPhase: (phase: TripPhase) => void;
 }) {
   const [newOpen, setNewOpen] = useState(false);
 
@@ -816,6 +1084,37 @@ function TripCard({
             }}
             onCancel={() => setNewOpen(false)}
           />
+        ) : trip.phase === "return" ? (
+          <>
+            <div className="flex items-baseline justify-between gap-2">
+              <p className="min-w-0 truncate text-[15px] font-bold">
+                🏠 Heading home
+              </p>
+              {trip.destination ? (
+                <p className="shrink-0 text-xs text-neutral-500 dark:text-neutral-400">
+                  {trip.destination}
+                </p>
+              ) : null}
+            </div>
+            <p className="text-[13px] leading-snug text-neutral-500 dark:text-neutral-400">
+              Everything you packed is listed below — check it off as it goes
+              back into bags or the car.
+            </p>
+            <div className="mt-1 flex items-center gap-2">
+              <button
+                onClick={() => onPhase("packing")}
+                className="rounded-lg px-3 py-2 text-sm font-semibold text-neutral-500 transition active:scale-95 dark:text-neutral-400"
+              >
+                ← Back to packing
+              </button>
+              <button
+                onClick={() => setNewOpen(true)}
+                className="flex-1 rounded-lg border border-sky-300 px-3 py-2 text-sm font-semibold text-sky-700 transition active:scale-95 dark:border-sky-800 dark:text-sky-400"
+              >
+                Start new trip…
+              </button>
+            </div>
+          </>
         ) : (
           <>
             <div className="flex items-baseline justify-between gap-2">
@@ -850,12 +1149,22 @@ function TripCard({
               active={trip.packs}
               onChange={(p) => onChange(trip.weather, p)}
             />
-            <button
-              onClick={() => setNewOpen(true)}
-              className="mt-1 w-full rounded-lg border border-sky-300 px-3 py-2 text-sm font-semibold text-sky-700 transition active:scale-95 dark:border-sky-800 dark:text-sky-400"
-            >
-              Start new trip…
-            </button>
+            <div className="mt-1 flex gap-2">
+              <button
+                onClick={() => setNewOpen(true)}
+                className="flex-1 rounded-lg border border-sky-300 px-3 py-2 text-sm font-semibold text-sky-700 transition active:scale-95 dark:border-sky-800 dark:text-sky-400"
+              >
+                Start new trip…
+              </button>
+              {showGoHome ? (
+                <button
+                  onClick={() => onPhase("return")}
+                  className="flex-1 rounded-lg border border-emerald-300 px-3 py-2 text-sm font-semibold text-emerald-700 transition active:scale-95 dark:border-emerald-800 dark:text-emerald-400"
+                >
+                  🏠 Time to go home
+                </button>
+              ) : null}
+            </div>
           </>
         )}
       </div>

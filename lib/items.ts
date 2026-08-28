@@ -1,6 +1,6 @@
 import "server-only";
 import { sql } from "@/lib/db";
-import type { Item, Section, Trip, TripWeather, Weather } from "@/lib/types";
+import type { Item, Section, Trip, TripPhase, TripWeather, Weather } from "@/lib/types";
 
 export type { Item, Section, Trip, TripWeather, Weather };
 
@@ -12,6 +12,8 @@ type ItemRow = {
   pack: string | null;
   category: string | null;
   checked: boolean;
+  skipped: boolean;
+  repacked: boolean;
   position: number;
   archived_at: string | null;
 };
@@ -25,6 +27,8 @@ function toItem(row: ItemRow): Item {
     pack: row.pack,
     category: row.category,
     checked: row.checked,
+    skipped: row.skipped,
+    repacked: row.repacked,
     position: row.position,
     archivedAt: row.archived_at,
   };
@@ -32,7 +36,7 @@ function toItem(row: ItemRow): Item {
 
 export async function getItems(): Promise<Item[]> {
   const rows = (await sql().query(
-    `SELECT id, title, section, weather, pack, category, checked, position, archived_at
+    `SELECT id, title, section, weather, pack, category, checked, skipped, repacked, position, archived_at
      FROM items WHERE NOT archived
      ORDER BY position, id`,
   )) as ItemRow[];
@@ -41,7 +45,7 @@ export async function getItems(): Promise<Item[]> {
 
 export async function getArchivedItems(): Promise<Item[]> {
   const rows = (await sql().query(
-    `SELECT id, title, section, weather, pack, category, checked, position, archived_at
+    `SELECT id, title, section, weather, pack, category, checked, skipped, repacked, position, archived_at
      FROM items WHERE archived
      ORDER BY archived_at DESC NULLS LAST, id`,
   )) as ItemRow[];
@@ -50,12 +54,13 @@ export async function getArchivedItems(): Promise<Item[]> {
 
 export async function getTrip(): Promise<Trip> {
   const rows = (await sql().query(
-    `SELECT weather, packs, started_at, destination,
+    `SELECT weather, packs, phase, started_at, destination,
             starts_on::text AS starts_on, nights, weather_stats
      FROM trip WHERE id = 1`,
   )) as {
     weather: TripWeather;
     packs: string[];
+    phase: TripPhase;
     started_at: string;
     destination: string | null;
     starts_on: string | null;
@@ -66,6 +71,7 @@ export async function getTrip(): Promise<Trip> {
   return {
     weather: row?.weather ?? "mixed",
     packs: row?.packs ?? [],
+    phase: row?.phase ?? "packing",
     startedAt: row?.started_at ?? "",
     destination: row?.destination ?? null,
     startsOn: row?.starts_on ?? null,

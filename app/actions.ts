@@ -8,6 +8,7 @@ import { SETPOINTS } from "@/lib/setpoints";
 import type {
   Section,
   TripMeta,
+  TripPhase,
   TripStats,
   TripWeather,
   Weather,
@@ -17,6 +18,7 @@ import type {
 const SECTIONS: Section[] = ["packing", "house", "abdul"];
 const WEATHERS: Weather[] = ["hot", "cold"];
 const TRIP_WEATHERS: TripWeather[] = ["hot", "cold", "mixed"];
+const TRIP_PHASES: TripPhase[] = ["packing", "return"];
 
 function cleanTitle(value: unknown): string {
   if (typeof value !== "string") throw new Error("Invalid title");
@@ -57,10 +59,46 @@ function cleanPacks(value: unknown): string[] {
 
 export async function toggleItem(id: number, checked: boolean): Promise<void> {
   await assertAuthenticated();
-  await sql().query(`UPDATE items SET checked = $2 WHERE id = $1`, [
+  // Packing an item means it's needed after all — checked and skipped are
+  // mutually exclusive.
+  await sql().query(
+    `UPDATE items
+     SET checked = $2, skipped = CASE WHEN $2 THEN FALSE ELSE skipped END
+     WHERE id = $1`,
+    [id, Boolean(checked)],
+  );
+  revalidatePath("/");
+}
+
+/** Mark an item "not needed this trip" (or bring it back with skipped=false). */
+export async function skipItem(id: number, skipped: boolean): Promise<void> {
+  await assertAuthenticated();
+  await sql().query(
+    `UPDATE items
+     SET skipped = $2, checked = CASE WHEN $2 THEN FALSE ELSE checked END
+     WHERE id = $1`,
+    [id, Boolean(skipped)],
+  );
+  revalidatePath("/");
+}
+
+/** Check an item back off while packing up to head home. */
+export async function repackItem(id: number, repacked: boolean): Promise<void> {
+  await assertAuthenticated();
+  await sql().query(`UPDATE items SET repacked = $2 WHERE id = $1`, [
     id,
-    Boolean(checked),
+    Boolean(repacked),
   ]);
+  revalidatePath("/");
+}
+
+/** Flip between outbound packing and the end-of-trip repack checklist. */
+export async function setTripPhase(phase: unknown): Promise<void> {
+  await assertAuthenticated();
+  if (!TRIP_PHASES.includes(phase as TripPhase)) {
+    throw new Error("Invalid trip phase");
+  }
+  await sql().query(`UPDATE trip SET phase = $1 WHERE id = 1`, [phase]);
   revalidatePath("/");
 }
 
@@ -117,7 +155,10 @@ export async function archiveItem(id: number): Promise<void> {
 export async function restoreItem(id: number): Promise<void> {
   await assertAuthenticated();
   await sql().query(
-    `UPDATE items SET archived = FALSE, archived_at = NULL, checked = FALSE WHERE id = $1`,
+    `UPDATE items
+     SET archived = FALSE, archived_at = NULL,
+         checked = FALSE, skipped = FALSE, repacked = FALSE
+     WHERE id = $1`,
     [id],
   );
   revalidatePath("/");
@@ -193,7 +234,7 @@ export async function lookupWeatherAction(
   }
 }
 
-/** Start a fresh trip: save meta, set weather/packs, uncheck every item. */
+/** Start a fresh trip: save meta, set weather/packs, reset every item's checks/skips. */
 export async function startNewTrip(
   weather: unknown,
   packs: unknown,
@@ -226,7 +267,7 @@ export async function startNewTrip(
   await sql().query(
     `UPDATE trip
      SET weather = $1, packs = $2, destination = $3, starts_on = $4,
-         nights = $5, weather_stats = $6::jsonb, started_at = now()
+         nights = $5, weather_stats = $6::jsonb, phase = 'packing', started_at = now()
      WHERE id = 1`,
     [
       weather,
@@ -237,6 +278,8 @@ export async function startNewTrip(
       stats ? JSON.stringify(stats) : null,
     ],
   );
-  await sql().query(`UPDATE items SET checked = FALSE`);
+  await sql().query(
+    `UPDATE items SET checked = FALSE, skipped = FALSE, repacked = FALSE`,
+  );
   revalidatePath("/");
 }

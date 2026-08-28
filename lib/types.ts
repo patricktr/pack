@@ -1,6 +1,8 @@
 export type Weather = "hot" | "cold";
 export type TripWeather = "hot" | "cold" | "mixed";
 export type Section = "packing" | "house" | "abdul";
+// 'packing' = getting ready to leave; 'return' = repacking to head home.
+export type TripPhase = "packing" | "return";
 
 export type Item = {
   id: number;
@@ -10,6 +12,8 @@ export type Item = {
   pack: string | null;
   category: string | null;
   checked: boolean;
+  skipped: boolean;
+  repacked: boolean;
   position: number;
   archivedAt: string | null;
 };
@@ -40,5 +44,6 @@ export type TripMeta = {
 export type Trip = TripMeta & {
   weather: TripWeather;
   packs: string[];
+  phase: TripPhase;
   startedAt: string;
 };
