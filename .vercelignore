@@ -1,0 +1,49 @@
+# The Vercel CLI uploads the working tree and does NOT read .gitignore, only this file
+# (plus a short built-in list: node_modules, .vercel, .next, .env.local, .env.*.local, ...).
+# So without it `vercel deploy` uploads every gitignored file on disk: env files, keys, local data.
+# Keep this file a superset of .gitignore. Never list a file git tracks: Git deploys may honour it too.
+
+# Secrets, whatever .gitignore says.
+.env
+.env.*
+!.env.example
+!.env.*.example
+!.env.sample
+*.pem
+*.key
+*.p8
+*.p12
+*.pfx
+*.mobileprovision
+**/.data
+**/.certs
+**/.secrets
+
+# Mirrors .gitignore.
+# deps
+/node_modules
+
+# next
+/.next/
+/out/
+next-env.d.ts
+*.tsbuildinfo
+
+# env
+.env*
+!.env.example
+
+# personal list data (kept out of the public repo)
+db/seed.private.sql
+
+# vercel
+.vercel
+
+# misc
+.DS_Store
+
+# Mirrors .git/info/exclude.
+.claude/worktrees/
+
+# Mirrors the global git excludes file.
+**/.claude/settings.local.json
