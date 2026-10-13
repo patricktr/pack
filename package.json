@@ -31,7 +31,8 @@
       "brace-expansion@1": "^1.1.21",
       "js-yaml@4": "^4.3.2",
       "postcss": ">=8.5.10",
-      "sharp@0": "^0.35.5"
+      "sharp@0": "^0.35.5",
+      "source-map-js@1": "^1.2.2"
     }
   },
   "packageManager": "pnpm@10.6.5"
